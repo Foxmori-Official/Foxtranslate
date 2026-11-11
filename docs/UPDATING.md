@@ -16,7 +16,7 @@ npm run check:upstreams
 
 ## GitHub 上的自动提醒
 
-`.github/workflows/upstreams.yml` 在每周一北京时间 09:17 和手动触发时运行。报告保存为工作流制品，并更新带固定标记的同一条待审阅 Issue。
+`.github/workflows/upstreams.yml` 在每周一北京时间 09:17、跟踪清单或脚本变更以及手动触发时运行。报告保存为工作流制品，并更新带固定标记的同一条待审阅 Issue。
 
 首次运行没有人工基线，所有参考项目都会出现。审阅后在 JSON 的 `reviewed` 对象内为对应仓库填写以下记录。
 

@@ -1,91 +1,65 @@
-# Foxtranslate 译境 隐私政策 / Privacy Policy
+# Foxtranslate 隐私政策 / Privacy Policy
 
-生效日期：2026-10-19 · 适用于 Foxtranslate 译境浏览器扩展（Chrome / Microsoft Edge）
-
----
+生效日期 2026-11-11。适用于 Foxtranslate 的 Chrome / Edge 扩展。
 
 ## 中文
 
-### 我们是谁
+### 产品与服务
 
-Foxtranslate 译境是一款开源的浏览器翻译扩展（GPL-3.0）。**本扩展没有服务器**：我们不运营任何后端服务，不收集统计数据，不打广告，没有账号体系。
+Foxtranslate 是开源双语翻译扩展。扩展不要求注册账号，不内置遥测或行为分析。所选翻译与 AI 服务由对应服务商提供，其账号、计费、日志和数据处理以服务商政策为准。
 
-### 扩展处理哪些数据
+### 网络请求
 
-**1. 网页文本（用户主动发起翻译时）**
-当且仅当你点击翻译（整页翻译、划词翻译、悬停翻译、输入框翻译）时，浏览器会把**你当前浏览的页面中需要翻译的文本**直接从你的浏览器发送到你**自行选择的翻译服务商**：
+- 网页翻译、划词、悬停、输入框、文档与字幕功能会把待翻译文本发送给所选服务。
+- 自动翻译规则、悬停与字幕等功能在触发后可自动发送文本，开关位于扩展设置中。
+- 语言检测可能请求 Google。免费引擎失败降级和多引擎对比可能访问多个服务。
+- AI 阅读、对话、写作与术语提取会发送相应文本和功能使用的上下文。开启页面上下文辅助时，会使用页面摘要等内容。
+- YouTube 字幕从 YouTube 获取。播放器中的 FT 按钮控制字幕翻译，会议翻译处理平台已提供的字幕文本。当前实现不录制麦克风或视频音频。
+- 设置页查询模型列表和测试连接时会访问配置端点，并可携带该服务的 API Key。
 
-- 免费引擎：Google 翻译（非官方网页接口）、微软翻译（非官方网页接口）、MyMemory
-- 自带密钥（BYOK）引擎：DeepL、OpenAI 兼容接口（OpenAI / DeepSeek / Ollama / 任何兼容端点）、LibreTranslate（可自托管）、自定义 JSON 接口
+### 脱敏范围
 
-文本传输不经过任何中间服务器。各服务商按其自有隐私政策处理接收到的文本。
+可选脱敏在翻译管线中识别邮箱、电话、银行卡、身份证和部分 API Key 模式，先用占位符替换，收到译文后尝试还原。它不能保证识别所有敏感内容。语言检测、AI 辅助和额外页面上下文等路径可能具有不同的处理方式，不能把脱敏开关视为全面保密保证。
 
-**2. 可选的敏感信息保护**
-你可以在设置中开启"敏感信息脱敏"：邮箱、电话、银行卡号、身份证号、API Key 等会在**你的浏览器本地**被替换为占位符后再发送给翻译引擎，译文返回后在本地还原。敏感原文不会离开你的设备。
+### 本地存储
 
-**3. API 密钥**
-你填写的 DeepL / OpenAI 等密钥只保存在浏览器的 `chrome.storage.local` 中，仅用于向你配置的服务商发起身份验证请求，不会被发送到任何其他地方。
+设置、API Key、生词、复习记录与翻译缓存保存在 `chrome.storage.local`。本地存储不是加密保险箱。Key 用于向用户配置的服务认证，译文缓存可能包含还原后的敏感内容。
 
-**4. 生词本**
-你收藏的生词、闪卡复习记录只保存在浏览器本地存储中，不会上传。
+### 控制与删除
 
-### 我们不做什么
-
-- 不收集浏览历史、不追踪浏览行为、无任何遥测/分析
-- 不出售、共享或转让任何用户数据
-- 不注入广告、不改浏览器设置
-- 不执行任何远程代码（所有程序逻辑都在扩展包内）
-
-### 你的控制权
-
-- 随时切换翻译引擎；可选自托管引擎（LibreTranslate / 自定义接口），文本完全不离开你的网络
-- 开启脱敏以保护敏感内容
-- 清除数据：卸载扩展即删除全部本地数据；也可在设置页删除生词本与翻译缓存
+可以更换服务、关闭自动触发、关闭 YouTube 或会议字幕、配置不自动翻译的网站，以及删除生词。浏览器扩展存储工具或卸载操作可移除本地配置和缓存，操作前请导出需要保留的生词。删除本地数据不会撤回已发给服务商的数据。
 
 ### 联系
 
-请通过项目仓库的 Issues 页面联系我们。
-
----
+问题与数据处理说明可在 [Foxtranslate 仓库](https://github.com/Foxmori-Official/Foxtranslate/issues) 提交。提交公开 Issue 前，请移除 API Key、个人内容与其他不希望公开的信息。
 
 ## English
 
-### Who we are
+### Product and services
 
-Foxtranslate is an open-source browser translation extension (GPL-3.0). **This extension has no servers**: we operate no backend, collect no analytics, show no ads, and have no accounts.
+Foxtranslate is an open-source bilingual translation extension. The extension requires no account and includes no telemetry or behavioral analytics. Selected translation and AI providers operate their own authentication, billing, logging and data policies.
 
-### What data the extension handles
+### Network requests
 
-**1. Web page text (only when you initiate translation)**
-When and only when you request a translation (page, selection, hover, or input translation), the text to be translated is sent **directly from your browser** to the **translation provider you choose**:
+- Page, selection, hover, input, document and subtitle features send text to the selected service.
+- Automatic site rules, hover and subtitle triggers can send text when activated.
+- Language detection may contact Google. Free-engine fallback and multi-engine comparison can contact several providers.
+- AI reading, chat, writing and term extraction send their input and the context used by that feature. Optional page-context assistance uses page summaries and related context.
+- Captions are retrieved from YouTube. The FT player button controls caption translation. Meeting translation processes captions supplied by the meeting platform. The current implementation does not record the microphone or video audio.
+- Model discovery and connection tests in Settings can contact configured endpoints with the associated API Key.
 
-- Free engines: Google Translate (unofficial web endpoint), Microsoft Translator (unofficial web endpoint), MyMemory
-- Bring-your-own-key engines: DeepL, OpenAI-compatible endpoints (OpenAI / DeepSeek / Ollama / any compatible endpoint), LibreTranslate (self-hostable), custom JSON endpoints
+### Optional masking
 
-Text is never routed through servers we operate. Each provider processes the submitted text under its own privacy policy.
+The translation pipeline can replace recognized email, phone, bank-card, ID and API-key patterns with placeholders, then attempt to restore them in the returned translation. Detection is incomplete by nature. Language detection, AI actions and additional page context may follow different processing paths. Masking is not a comprehensive confidentiality guarantee.
 
-**2. Optional sensitive-data masking**
-You can enable "Sensitive data masking" in settings: email addresses, phone numbers, bank card numbers, ID numbers, and API keys are replaced with placeholders **locally in your browser** before being sent for translation, and restored locally afterwards. Sensitive original text never leaves your device.
+### Local storage
 
-**3. API keys**
-Keys you enter (DeepL / OpenAI, etc.) are stored only in `chrome.storage.local` and are used solely to authenticate requests to the provider you configured. They are never transmitted anywhere else.
+Settings, API keys, saved vocabulary, review records and translation caches use `chrome.storage.local`. This storage is not an encrypted vault. Keys authenticate requests to configured services. Translation caches can contain restored sensitive text.
 
-**4. Wordbook**
-Saved words and flashcard review records stay in local browser storage and are never uploaded.
+### Control and deletion
 
-### What we do NOT do
-
-- No browsing-history collection, no behavior tracking, no telemetry or analytics
-- No sale, sharing, or transfer of user data
-- No ads, no browser-setting changes
-- No remote code execution (all program logic ships inside the extension package)
-
-### Your controls
-
-- Switch translation engines anytime; choose self-hosted engines (LibreTranslate / custom endpoint) so text never leaves your network
-- Enable masking to protect sensitive content
-- Delete data: uninstalling the extension removes all local data; the wordbook and translation cache can also be cleared from the options page
+You can change providers, disable automatic triggers and subtitles, configure site policies, and delete saved words. Browser extension-storage tools or uninstalling can remove local configuration and caches. Export needed vocabulary first. Deleting local data does not recall information already sent to providers.
 
 ### Contact
 
-Reach us via the Issues page of the project repository.
+Use the [Foxtranslate issue tracker](https://github.com/Foxmori-Official/Foxtranslate/issues). Remove API keys and private content before posting a public issue.
