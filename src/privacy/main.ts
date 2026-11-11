@@ -61,6 +61,7 @@ const EN: PrivacyContent = {
 
 const app = document.getElementById('app')!
 if (app) {
+  document.documentElement.lang = 'en'
   app.className = 'fox-shell'
   const content = document.createElement('main')
   content.className = 'wrap fox-main'

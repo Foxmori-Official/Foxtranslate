@@ -468,6 +468,7 @@ function switchTab(id: TabId): void {
 
 function renderContent(): void {
   if (!contentEl) return
+  document.documentElement.lang = resolveUiLang(config.uiLang)
   // 导航标签随界面语言刷新（uiLang 切换后重渲染即更新）
   document.querySelectorAll<HTMLButtonElement>('.nav-btn').forEach((b) => {
     const navTab = TABS.find((x) => x.id === b.dataset.tab)

@@ -17,7 +17,7 @@ async function request(path, optional = false) {
   return response.json()
 }
 function text(value) {
-  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/@/g, '@\u200b')
+  return String(value || '').replace(/<!--[\s\S]*?-->/g, '').trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/@/g, '@\u200b')
 }
 
 const results = []
@@ -59,7 +59,12 @@ for (const item of results) {
     '关注方向 ' + item.focus, '', '当前提交 `' + item.headSha + '` · 许可证 ' + item.license, '',
     item.reviewedSha ? '人工审阅基线 `' + item.reviewedSha + '`' : '人工审阅基线尚未建立。',
     '', '[提交与差异](' + item.compareUrl + ')')
-  if (item.release) lines.push('', '[最新 Release ' + text(item.release.tag) + '](' + item.release.url + ')', '', text(item.release.body).slice(0, 4500))
+  if (item.release) {
+    const body = text(item.release.body)
+    const excerpt = body.length > 4500 ? body.slice(0, 4500).split('\n').slice(0, -1).join('\n') : body
+    lines.push('', '[最新 Release ' + text(item.release.tag) + '](' + item.release.url + ')', '', excerpt)
+    if (body.length > 4500) lines.push('', '[阅读完整更新说明](' + item.release.url + ')')
+  }
   else lines.push('', '上游没有可用的正式 Release，按默认分支提交检查。')
   for (const commit of item.commits) lines.push('- [' + commit.sha.slice(0, 7) + '](' + commit.url + ') ' + text(commit.message))
   lines.push('', '- [ ] 检查用户收益与现有能力', '- [ ] 检查源文件、许可证与归属', '- [ ] 记录采用、暂缓或不采用的决定', '- [ ] 建立回归用例并通过构建')
