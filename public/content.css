@@ -181,10 +181,8 @@ tv-translation.tv-style-frosted .tv-tr-inner {
   z-index: var(--tv-z-index);
   width: 44px;
   height: 44px;
-  border-radius: 50%;
-  background: var(--tv-primary-strong);
-  color: #fff;
-  font: 700 13px var(--tv-font);
+  border-radius: 11px;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -195,9 +193,23 @@ tv-translation.tv-style-frosted .tv-tr-inner {
 }
 .tv-ball:hover { transform: scale(1.08); }
 .tv-ball.tv-ball-active {
-  background: var(--tv-primary);
+  outline: 2px solid var(--tv-primary);
+  outline-offset: 3px;
   box-shadow: 0 4px 12px rgba(41, 61, 51, 0.18);
 }
+
+.tv-ball > img {
+  display: block;
+  width: 44px;
+  height: 44px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  object-fit: contain;
+  pointer-events: none;
+}
+.tv-ball:focus-visible { outline: 2px solid var(--tv-accent); outline-offset: 3px; }
 
 /* ===== 划词气泡 ===== */
 .tv-sel-popup {

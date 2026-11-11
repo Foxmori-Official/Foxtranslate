@@ -19,8 +19,14 @@ export class PlayerControl {
     const button = document.createElement('button')
     button.className = 'ytp-button foxtranslate-caption-button'
     button.type = 'button'
-    button.textContent = 'FT'
-    button.style.cssText = 'width:48px!important;font:700 15px/1 system-ui!important;color:#fff;border:0;background:transparent;vertical-align:top;position:relative;'
+    button.style.cssText = 'width:48px!important;color:#fff;border:0;background:transparent;vertical-align:top;position:relative;'
+    const icon = document.createElement('img')
+    icon.src = chrome.runtime.getURL('icons/icon48.png')
+    icon.alt = ''
+    icon.width = icon.height = 28
+    icon.draggable = false
+    icon.style.cssText = 'position:absolute;inset:0;display:block;width:28px;height:28px;margin:auto;object-fit:contain;pointer-events:none;'
+    button.append(icon)
     button.addEventListener('click', event => {
       event.stopPropagation()
       if (this.busy) return

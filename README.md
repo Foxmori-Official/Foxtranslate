@@ -8,7 +8,7 @@ Foxmori 的开源双语翻译扩展，支持 Chrome 和 Edge。网页翻译、�
 
 - 网页双语对照、仅译文模式、可见段落调度，以及动态页面翻译。
 - 划词、按住修饰键悬停、输入框翻译、可配置快捷键和悬浮球。
-- YouTube 双语字幕。播放器右下角的 **FT** 按钮可开关字幕翻译，支持切换视频后的重新挂载、加载反馈和失败提示。
+- YouTube 双语字幕。播放器右下角的 **狐狸图标**按钮可开关字幕翻译，支持切换视频后的重新挂载、加载反馈和失败提示。
 - Google Meet、Teams、Zoom 网页会议字幕翻译。需要先开启会议平台提供的字幕。
 - PDF、ePub、DOCX、PPTX、XLSX、HTML、JSON、TXT、Markdown、SRT、VTT、ASS 文档翻译与导出，支持译文校订。PDF 当前导出为双语 HTML。
 - Google、Microsoft、MyMemory 免费引擎，以及 DeepL、OpenAI 兼容端点、DeepSeek、Claude、Gemini、LibreTranslate 和自定义服务。
@@ -35,7 +35,7 @@ npm run build
 4. 默认使用无需 Key 的 Google 免费引擎。AI 或付费服务请在“设置 → 翻译引擎”填写配置并测试连接。
 5. 在普通网页打开扩展，点击“翻译此页”。更新扩展后刷新已打开的网页，内容脚本才会使用新版本。
 
-在 YouTube 的 `/watch?v=…` 页面，FT 按钮位于原生播放器控制栏。默认字幕翻译选项在“设置 → 视频与会议”中，关闭时按钮仍可用于重新开启。没有可读取字幕时会提示原因，不会进行音频转写。
+在 YouTube 的 `/watch?v=…` 页面，狐狸图标按钮位于原生播放器控制栏。默认字幕翻译选项在“设置 → 视频与会议”中，关闭时按钮仍可用于重新开启。没有可读取字幕时会提示原因，不会进行音频转写。
 
 商店发行前可自行构建安装包。解压 ZIP 后再按上述方式加载。
 
@@ -53,7 +53,7 @@ npm run verify:package
 npm run test:browser
 ```
 
-浏览器集成测试先运行 `npx playwright install chromium`。也可通过 `FOXTRANSLATE_TEST_CHROMIUM` 指向本机 Chromium 可执行文件。测试用独立配置目录与模拟服务，检查安装引导、配置保存、键盘选择、左右布局、网页翻译、YouTube FT 控件与字幕。真实服务的额度、密钥和视频字幕可用性需要单独验收。
+浏览器集成测试先运行 `npx playwright install chromium`。也可通过 `FOXTRANSLATE_TEST_CHROMIUM` 指向本机 Chromium 可执行文件。测试用独立配置目录与模拟服务，检查安装引导、配置保存、键盘选择、左右布局、网页翻译、YouTube 狐狸图标控件与字幕。真实服务的额度、密钥和视频字幕可用性需要单独验收。
 
 - `src/core` 负责文本、语言、术语与脱敏等纯逻辑。
 - `src/background` 负责消息、翻译管线、引擎路由与缓存。

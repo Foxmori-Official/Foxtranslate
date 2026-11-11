@@ -10,6 +10,7 @@ const screenshots = process.env.FOXTRANSLATE_SCREENSHOTS
 const extension = resolve('dist')
 const fixture = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.setHeader('Content-Security-Policy', "img-src 'self'")
   res.end('<!doctype html><html lang="en"><title>Reading fixture</title><main><h1>Reading with Foxtranslate</h1><p id="paragraph">This paragraph contains useful information about language learning.</p></main></html>')
 })
 await new Promise(done => fixture.listen(0, '127.0.0.1', done))
@@ -88,6 +89,15 @@ try {
   // A real host page activates the normal content script and background pipeline.
   const content = await browser.newPage()
   await content.goto(address)
+  await content.waitForFunction(() => {
+    const icon = document.querySelector('.tv-ball > img')
+    return icon?.complete && icon.naturalWidth === 48
+  })
+  assert.equal(await content.locator('.tv-ball').textContent(), '')
+  const ballIcon = await content.locator('.tv-ball > img').getAttribute('src')
+  await config({ uiLang: 'de' })
+  assert.equal(await content.locator('.tv-ball > img').getAttribute('src'), ballIcon)
+  await config({ uiLang: 'zh-CN' })
   const contentTab = await worker.evaluate(async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     return tab.id
@@ -130,7 +140,7 @@ try {
   await options.setViewportSize({ width: 1100, height: 760 })
   await options.goto(origin + '/options.html#video')
   await options.locator('[data-tab="video"][aria-current="page"]').waitFor()
-  await options.getByText('FT 按钮', { exact: false }).waitFor()
+  await options.getByText('狐狸图标按钮', { exact: false }).waitFor()
   await leftRight(options, '.sidebar', '.main')
   await options.locator('[data-tab="general"]').click()
   await capture(options, 'foxtranslate-settings')
@@ -199,7 +209,7 @@ try {
     }
     await route.fulfill({
       contentType: 'text/html',
-      headers: { 'content-security-policy': "script-src 'self'; require-trusted-types-for 'script'" },
+      headers: { 'content-security-policy': "script-src 'self'; img-src 'self'; require-trusted-types-for 'script'" },
       body: '<!doctype html><html><head><title>Video fixture</title></head><body style="margin:0;background:#faf9f4"><div id="movie_player" style="position:relative;width:900px;height:506px;background:#19251e"><video class="html5-main-video"></video><div class="ytp-right-controls" style="position:absolute;right:16px;bottom:0;height:48px"><button class="ytp-subtitles-button" aria-pressed="true">CC</button></div></div><script src="/fixture-player.js"></script></body></html>',
     })
   })
@@ -207,8 +217,14 @@ try {
   const video = await browser.newPage()
   await video.setViewportSize({ width: 1100, height: 720 })
   await video.goto('https://www.youtube.com/watch?v=fixture')
-  const ft = video.getByRole('button', { name: /Foxtranslate/ })
+  const ft = video.locator('.ytp-right-controls').getByRole('button', { name: /Foxtranslate/ })
   await ft.waitFor()
+  await video.waitForFunction(() => {
+    const icon = document.querySelector('.foxtranslate-caption-button img')
+    return icon?.complete && icon.naturalWidth === 48
+  })
+  assert.equal(await ft.textContent(), '')
+  assert.equal(await ft.locator('img').getAttribute('src'), ballIcon)
   assert.equal(await ft.getAttribute('aria-pressed'), 'false')
   await ft.click()
   await video.locator('#tv-yt-subtitle-host').waitFor()
@@ -241,7 +257,11 @@ try {
     try {
       await live.goto('https://www.youtube.com/watch?v=jNQXAC9IVRw', { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await live.locator('.foxtranslate-caption-button').waitFor({ timeout: 25_000 })
-      console.log('LIVE YOUTUBE · FT button mounted in the current player controls')
+      await live.waitForFunction(() => {
+        const icon = document.querySelector('.foxtranslate-caption-button img')
+        return icon?.complete && icon.naturalWidth === 48
+      })
+      console.log('LIVE YOUTUBE · extension icon mounted in the current player controls')
       await capture(live, 'foxtranslate-youtube-live')
     } catch (error) {
       console.log('LIVE YOUTUBE · external page verification unavailable: ' + error.message.split('\n')[0])

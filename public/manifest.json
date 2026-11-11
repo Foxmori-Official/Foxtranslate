@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extName__",
   "short_name": "__MSG_extShortName__",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "__MSG_extDescription__",
   "minimum_chrome_version": "116",
   "background": {
@@ -103,5 +103,16 @@
     "128": "icons/icon128.png"
   },
   "default_locale": "en",
-  "homepage_url": "https://github.com/Foxmori-Official/Foxtranslate"
+  "homepage_url": "https://github.com/Foxmori-Official/Foxtranslate",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/icon48.png"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ]
 }
