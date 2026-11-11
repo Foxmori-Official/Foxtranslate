@@ -73,7 +73,7 @@ npm run test:browser
 
 1. 更新 package.json 和 public/manifest.json 的版本，更新 CHANGELOG.md。版本必须一致，标签格式为 `v0.0.1`。
 2. 提交并通过 CI。运行 `npm run zip` 得到 `release/foxtranslate-版本.zip`，包根目录必须直接包含 manifest.json。
-3. 在 docs/releases/v版本号.md 编写中文在前、英文在后的说明。推送版本标签会构建草稿。创建 release/v版本号 分支并推送发布提交后，工作流通过全部检查再创建标签并公开发布。手动触发提供 publish 选项。
+3. 在 docs/releases/v版本号.md 编写中文发布说明。推送版本标签会构建草稿。创建 release/v版本号 分支并推送发布提交后，工作流通过全部检查再创建标签并公开发布。手动触发提供 publish 选项。
 4. 从构建制品或 Release 下载 ZIP，以全新浏览器配置加载并按上面的清单检查，同时检查从上一版覆盖升级后的配置、生词和快捷键。
 5. 在 Release 写明新增、修复、兼容性变化、已知限制和参考的上游提交，验收后发布草稿。商店上传需另行提交审核。
 6. 出现回归时修复并发布更高版本，或给出回退安装包。浏览器更新依赖商店签名与版本检查，普通开发者加载的扩展需要手动替换并重新加载。

@@ -1,4 +1,4 @@
-name: 发布版本 / Release
+name: 发布版本
 on:
   push:
     tags: ['v*']
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 发布为公开版本 / Publish publicly
+        description: 发布为公开版本
         type: boolean
         default: false
 permissions:
@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - name: 检查版本与双语说明 / Validate version and bilingual notes
+      - name: 检查版本与中文说明
         id: version
         run: |
           node --input-type=module <<'JS'
@@ -38,8 +38,9 @@ jobs:
             assert.equal(process.env.GITHUB_REF_NAME, expected)
           }
           const notes = readFileSync('docs/releases/' + tag + '.md', 'utf8')
-          assert.ok(notes.indexOf('## 中文') >= 0)
-          assert.ok(notes.indexOf('## English') > notes.indexOf('## 中文'))
+          assert.ok(notes.trim().length > 0, '发布说明不能为空')
+          assert.ok(/[\u3400-\u9fff]/u.test(notes), '发布说明须使用中文')
+          assert.ok(!/^##?\s+English\b/m.test(notes), '发布说明仅使用中文')
           appendFileSync(process.env.GITHUB_OUTPUT, 'tag=' + tag + String.fromCharCode(10))
           JS
       - run: npm ci
@@ -50,12 +51,12 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - run: node scripts/zip-dist.mjs
-      - name: 保存构建产物 / Save build artifacts
+      - name: 保存构建产物
         uses: actions/upload-artifact@v4
         with:
           name: Foxtranslate-${{ steps.version.outputs.tag }}
           path: release/foxtranslate-*.zip
-      - name: 创建双语发布及校验和 / Create bilingual release and checksums
+      - name: 创建中文发布及校验和
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -63,11 +64,11 @@ jobs:
         run: |
           sha256sum release/foxtranslate-*.zip > release/SHA256SUMS.txt
           if gh release view "$TAG" --json isDraft --jq '.isDraft' > /tmp/release-is-draft 2>/dev/null; then
-            test "$(cat /tmp/release-is-draft)" = true || { echo "此版本已发布 / This version is already published"; exit 1; }
+            test "$(cat /tmp/release-is-draft)" = true || { echo "此版本已发布"; exit 1; }
             gh release upload "$TAG" release/foxtranslate-*.zip release/SHA256SUMS.txt --clobber
-            gh release edit "$TAG" --notes-file "docs/releases/$TAG.md" --title "Foxtranslate $TAG · 版本发布 / Release"
+            gh release edit "$TAG" --notes-file "docs/releases/$TAG.md" --title "Foxtranslate $TAG"
           else
-            gh release create "$TAG" release/foxtranslate-*.zip release/SHA256SUMS.txt --draft --target "$GITHUB_SHA" --notes-file "docs/releases/$TAG.md" --title "Foxtranslate $TAG · 版本发布 / Release"
+            gh release create "$TAG" release/foxtranslate-*.zip release/SHA256SUMS.txt --draft --target "$GITHUB_SHA" --notes-file "docs/releases/$TAG.md" --title "Foxtranslate $TAG"
           fi
           if [ "$PUBLISH" = true ]; then
             gh release edit "$TAG" --draft=false --latest

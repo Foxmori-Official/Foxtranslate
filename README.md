@@ -94,7 +94,7 @@ npm run check:upstreams
 
 命令生成 `reports/upstream-updates.md` 和 JSON 数据。GitHub Actions 每周一北京时间 09:17 检查六个参考项目，在同一条 Issue 更新待审阅报告。第一次运行尚无人工基线，会列出全部项目供初次评估。维护者审阅后才更新基线，采用代码需另行提交 PR。
 
-提交和 PR 会运行检查与打包工作流。发布支持版本标签、`release/v版本号` 分支和手动触发。版本分支通过测试后公开发布，标签和手动触发默认生成草稿。发布说明按中文、英文的顺序编写，安装包附 SHA-256 校验和。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+提交和 PR 会运行检查与打包工作流。发布支持版本标签、`release/v版本号` 分支和手动触发。版本分支通过测试后公开发布，标签和手动触发默认生成草稿。发布说明使用中文，安装包附 SHA-256 校验和。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ### 隐私与许可
 
@@ -183,7 +183,7 @@ npm run check:upstreams
 
 Reports are written under `reports`. GitHub Actions checks six reference repositories every Monday at 09:17 China Standard Time and updates one review issue. The initial run lists all projects until maintainers establish reviewed baselines. Code adoption uses separate pull requests.
 
-CI checks pushes and pull requests. Releases accept version tags, `release/vVERSION` branches and manual dispatch. Version branches publish after verification. Tag and manual builds default to drafts. Release notes place Chinese first and English second, and packages include SHA-256 checksums. See [CHANGELOG.md](CHANGELOG.md).
+CI checks pushes and pull requests. Releases accept version tags, `release/vVERSION` branches and manual dispatch. Version branches publish after verification. Tag and manual builds default to drafts. Release notes are written in Chinese, and packages include SHA-256 checksums. See [CHANGELOG.md](CHANGELOG.md).
 
 ### Privacy and license
 
