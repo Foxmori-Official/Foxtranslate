@@ -1,9 +1,19 @@
-name: Release
+name: 发布版本 / Release
 on:
   push:
     tags: ['v*']
+    branches: ['release/**']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 发布为公开版本 / Publish publicly
+        type: boolean
+        default: false
 permissions:
   contents: write
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -13,17 +23,52 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: 检查版本与双语说明 / Validate version and bilingual notes
+        id: version
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict'
+          import { readFileSync, appendFileSync } from 'node:fs'
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+          const manifest = JSON.parse(readFileSync('public/manifest.json', 'utf8'))
+          assert.equal(pkg.version, manifest.version)
+          const tag = 'v' + pkg.version
+          if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch') {
+            const expected = process.env.GITHUB_REF_TYPE === 'tag' ? tag : 'release/' + tag
+            assert.equal(process.env.GITHUB_REF_NAME, expected)
+          }
+          const notes = readFileSync('docs/releases/' + tag + '.md', 'utf8')
+          assert.ok(notes.indexOf('## 中文') >= 0)
+          assert.ok(notes.indexOf('## English') > notes.indexOf('## 中文'))
+          appendFileSync(process.env.GITHUB_OUTPUT, 'tag=' + tag + String.fromCharCode(10))
+          JS
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build:store
       - run: node scripts/verify-package.mjs
-      - name: Match release tag
-        run: node -e "if (process.env.GITHUB_REF_NAME !== 'v' + JSON.parse(require('fs').readFileSync('package.json')).version) process.exit(1)"
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
       - run: node scripts/zip-dist.mjs
-      - name: Draft release with package and checksum
+      - name: 保存构建产物 / Save build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Foxtranslate-${{ steps.version.outputs.tag }}
+          path: release/foxtranslate-*.zip
+      - name: 创建双语发布及校验和 / Create bilingual release and checksums
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PUBLISH: ${{ inputs.publish || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/')) }}
         run: |
           sha256sum release/foxtranslate-*.zip > release/SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" release/foxtranslate-*.zip release/SHA256SUMS.txt --draft --generate-notes --title "Foxtranslate $GITHUB_REF_NAME"
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' > /tmp/release-is-draft 2>/dev/null; then
+            test "$(cat /tmp/release-is-draft)" = true || { echo "此版本已发布 / This version is already published"; exit 1; }
+            gh release upload "$TAG" release/foxtranslate-*.zip release/SHA256SUMS.txt --clobber
+            gh release edit "$TAG" --notes-file "docs/releases/$TAG.md" --title "Foxtranslate $TAG · 版本发布 / Release"
+          else
+            gh release create "$TAG" release/foxtranslate-*.zip release/SHA256SUMS.txt --draft --target "$GITHUB_SHA" --notes-file "docs/releases/$TAG.md" --title "Foxtranslate $TAG · 版本发布 / Release"
+          fi
+          if [ "$PUBLISH" = true ]; then
+            gh release edit "$TAG" --draft=false --latest
+          fi

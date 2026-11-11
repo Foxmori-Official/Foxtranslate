@@ -1,4 +1,4 @@
-name: Check and package
+name: 检查与打包 / Check and package
 on:
   push:
     branches: [main]

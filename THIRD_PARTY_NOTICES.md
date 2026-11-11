@@ -1,6 +1,6 @@
 # 第三方归属与参考记录
 
-Foxtranslate 继承 Rtranslate 的代码基础和 GPL-3.0 许可，原始项目为 https://github.com/aimaonews/Rtranslate 。现有源文件中的归属说明及 LICENSE 随项目保留。
+Foxtranslate 使用 GPL-3.0 许可。现有源文件中的归属说明及 LICENSE 随项目保留。
 
 README 列出六个参考项目及各自的参考方向。采用某项上游实现时，维护者应在对应变更中记录仓库、源路径、完整提交 SHA、许可、采用范围和修改。参考项目的最新版本与许可证以其仓库为准，检查脚本会收集当前标识供审阅。
 

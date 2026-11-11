@@ -1,20 +1,16 @@
-# 更新记录
+# 更新记录 / Changelog
 
-## 0.1.1 · 2026-11-11
+## v0.0.1 · 2026-11-12
 
-- YouTube 双语字幕按钮和网页悬浮球统一使用扩展的狐狸图标。
-- 保留字幕开关状态指示、悬浮球拖拽和翻译切换，配置变化后保留图标。
-- 为页面中的图标声明资源访问范围，并验证实际加载。
+首个 GitHub 构建版本。完整发布说明采用中文在前、英文在后的顺序。
 
+- 统一 Foxtranslate 名称、Foxmori 配色与狐狸图标。
+- 网页、设置、引导、文档、复习和隐私页面采用左右布局，窄屏保留侧栏。
+- YouTube 播放器与网页悬浮入口统一使用扩展图标。
+- 提供网页翻译、文档导出、AI 辅助、生词本和 FSRS 复习。
+- 完善引导保存反馈、键盘操作、站点规则和视频设置。
+- 提供双语 README 与发布说明、六个参考项目的更新跟踪，以及 GitHub 构建发布流程。
 
-## 0.1.0 · 2026-11-11
+The first GitHub build includes Foxtranslate branding, persistent left/right layouts, fox-icon controls, translation and document workflows, vocabulary review, setup improvements, Chinese-first bilingual documentation, upstream tracking and release automation.
 
-- 软件统一命名为 Foxtranslate，并使用 Foxmori 品牌配色与狐狸图标。
-- 弹窗、设置、安装引导、文档、复习和隐私页采用左右布局。窄屏保留左侧导航。
-- YouTube 原生播放器控制栏加入 FT 双语字幕按钮，提供开关、加载与失败反馈，跟踪 SPA 视频导航及播放器替换。
-- 将 YouTube 数据桥接脚本打包为 MAIN world 内容脚本，支持具有严格脚本 CSP 的页面。
-- 改进安装引导的保存与错误反馈，提供可点击的示例翻译和完成后的设置入口。
-- 为自定义下拉补充键盘操作、可访问名称和视口定位。站点翻译规则统一为单选，并说明下次访问生效。
-- 设置中单独提供视频与会议页面，整合语言设置和导航分组。
-- 串行化本地写操作，避免并行字幕翻译覆盖使用计数或生词写入。
-- 添加参考项目跟踪、检查与打包、草稿发行工作流，以及更新维护文档。
+[完整发布说明 / Full release notes](docs/releases/v0.0.1.md)
