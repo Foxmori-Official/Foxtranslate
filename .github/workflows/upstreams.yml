@@ -1,5 +1,12 @@
 name: Reference project updates
 on:
+  push:
+    paths:
+      - docs/upstreams.json
+      - docs/upstream-baseline.json
+      - scripts/check-upstreams.mjs
+      - scripts/upstream-issue.mjs
+      - .github/workflows/upstreams.yml
   schedule:
     - cron: '17 1 * * 1'
   workflow_dispatch:
