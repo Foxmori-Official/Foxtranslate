@@ -1,0 +1,92 @@
+/* Foxtranslate 共享界面样式，配色来自 Foxmori 站点。 */
+
+:root {
+  /* 颜色 */
+  --tv-primary: #52724e;
+  --tv-primary-strong: #2e5943;
+  --tv-primary-text: #244734;
+  --tv-primary-soft: #edf0e5;
+  --tv-primary-softer: #f4f5ee;
+
+  --tv-text: #293d33;
+  --tv-text-sub: #5f695b;
+  --tv-text-faint: #66705d;
+
+  --tv-bg: #faf9f4;
+  --tv-card: #fffefa;
+  --tv-border: #e4e6dc;
+  --tv-border-strong: #c6cebb;
+
+  --tv-sidebar: #efefe7;
+  --tv-nav-selected: #dfe8d4;
+  --tv-nav-marker: #8fa66f;
+  --tv-accent: #a65d33;
+  --tv-danger: #ad614e;
+  --tv-danger-text: #943e30;
+  --tv-warning: #b1854e;
+  --tv-success: #4b7754;
+
+  /* 字阶 */
+  --tv-fs-caption: 12px;
+  --tv-fs-sub: 13px;
+  --tv-fs-body: 14px;
+  --tv-fs-card-title: 15px;
+  --tv-fs-page-title: 21px;
+  --tv-fs-display: 28px;
+
+  /* 圆角 */
+  --tv-radius-sm: 6px;
+  --tv-radius-md: 8px;
+  --tv-radius-lg: 16px;
+  --tv-radius-pill: 999px;
+
+  /* 间距 */
+  --tv-space-1: 4px;
+  --tv-space-2: 8px;
+  --tv-space-3: 12px;
+  --tv-space-4: 16px;
+  --tv-space-5: 24px;
+  --tv-space-6: 32px;
+
+  /* 阴影 */
+  --tv-shadow-sm: 0 1px 3px rgba(41, 61, 51, 0.06);
+  --tv-shadow-md: 0 4px 12px rgba(41, 61, 51, 0.08);
+  --tv-shadow-lg: 0 10px 32px rgba(41, 61, 51, 0.14);
+
+  /* 动效 */
+  --tv-motion-fast: 150ms ease;
+  --tv-motion-base: 200ms ease;
+
+  /* 字体 */
+  --tv-font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+
+  /* 焦点环 */
+  --tv-focus-ring: 0 0 0 2px var(--tv-card), 0 0 0 4px var(--tv-accent);
+}
+
+/* 全局焦点规范 */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--tv-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+[hidden] { display: none !important; }
+[role='option'].is-focused { background: var(--tv-primary-soft); color: var(--tv-primary-text); }
+::selection { background: #dfe8d4; color: var(--tv-text); }
+input, textarea { caret-color: var(--tv-primary-strong); }

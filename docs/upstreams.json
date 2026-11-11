@@ -1,0 +1,8 @@
+[
+  {"name":"KISS Translator","repository":"fishjar/kiss-translator","focus":"富文本保留、聚合翻译、引擎兼容、输入框交互"},
+  {"name":"FluentRead 流畅阅读","repository":"FluentRead/FluentRead","focus":"翻译生命周期、阅读辅助、安装引导、文档与视频体验"},
+  {"name":"Read Frog 陪读蛙","repository":"mengxi-ream/read-frog","focus":"YouTube 控件与字幕、生词本、FSRS 学习流程"},
+  {"name":"Interline 行间","repository":"eigenlux-ai/interline-translator","focus":"免密钥翻译、缓存、译文展示"},
+  {"name":"OpenImmersive Translator","repository":"OpenImmersive/OpenImmersive-Translator","focus":"敏感信息脱敏、免费引擎降级、隐私说明"},
+  {"name":"MTranBrowser","repository":"xxnuo/MTranBrowser","focus":"可见内容调度、DOM 兼容、悬停与悬浮入口"}
+]

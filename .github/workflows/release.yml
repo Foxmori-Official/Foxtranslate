@@ -1,0 +1,29 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:store
+      - run: node scripts/verify-package.mjs
+      - name: Match release tag
+        run: node -e "if (process.env.GITHUB_REF_NAME !== 'v' + JSON.parse(require('fs').readFileSync('package.json')).version) process.exit(1)"
+      - run: node scripts/zip-dist.mjs
+      - name: Draft release with package and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum release/foxtranslate-*.zip > release/SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" release/foxtranslate-*.zip release/SHA256SUMS.txt --draft --generate-notes --title "Foxtranslate $GITHUB_REF_NAME"

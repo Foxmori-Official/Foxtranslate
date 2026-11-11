@@ -61,6 +61,8 @@ npm run test:browser
 - `src/subtitles` 负责视频与会议字幕，`ytBridge.ts` 为包内 MAIN world 桥接脚本。
 - `src/shared` 负责配置、存储、协议、词典与共享界面行为。
 
+图标由源码中的 SVG 和可逆 Base64 资源在构建时恢复，PDF.js 运行时资源从锁定的 npm 包复制。历史商店截图保留在本地，发布新版本时需要重新生成。
+
 架构细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 参考项目与致谢

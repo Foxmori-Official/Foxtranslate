@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict'
+import { readFile, access } from 'node:fs/promises'
+const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'))
+const pkg = JSON.parse(await readFile('package.json', 'utf8'))
+assert.equal(manifest.version, pkg.version, 'Package and manifest versions must agree')
+assert.equal(pkg.name, 'foxtranslate')
+const en = JSON.parse(await readFile('dist/_locales/en/messages.json', 'utf8'))
+assert.ok(en.extName.message.includes('Foxtranslate'))
+for (const page of ['popup', 'options', 'onboarding', 'files', 'review', 'privacy']) await access('dist/' + page + '.html')
+for (const script of manifest.content_scripts.flatMap(item => item.js)) await access('dist/' + script)
+assert.ok(manifest.content_scripts.some(item => item.world === 'MAIN' && item.js.includes('youtube-bridge.js')))
+console.log('Verified Foxtranslate version, pages, scripts, and YouTube bridge')

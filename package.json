@@ -1,0 +1,33 @@
+{
+  "name": "foxtranslate",
+  "displayName": "Foxtranslate - 开源双语翻译",
+  "version": "0.1.0",
+  "description": "Foxmori 的开源双语翻译扩展，支持网页、文档、YouTube 字幕和生词复习。",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/restore-assets.mjs && node scripts/gen-icons.mjs && vite build --watch",
+    "build": "node scripts/restore-assets.mjs && node scripts/gen-icons.mjs && node scripts/sync-pdfjs-assets.mjs && vite build && vite build -c vite.content.config.ts && vite build -c vite.subtitles.config.ts && vite build -c vite.bridge.config.ts && node scripts/fix-dist.mjs",
+    "build:store": "node scripts/restore-assets.mjs && node scripts/gen-icons.mjs && node scripts/sync-pdfjs-assets.mjs && vite build --minify false && vite build -c vite.content.config.ts --minify false && vite build -c vite.subtitles.config.ts --minify false && vite build -c vite.bridge.config.ts --minify false && node scripts/fix-dist.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "zip": "npm run build && node scripts/zip-dist.mjs",
+    "check:upstreams": "node scripts/check-upstreams.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "test:browser": "node scripts/e2e/acceptance.mjs"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "pdfjs-dist": "^6.4.299",
+    "ts-fsrs": "^5.4.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "@types/node": "^26.6.5",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.61.1",
+    "sharp": "^0.35.5",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.0",
+    "vitest": "^4.1.12"
+  }
+}
