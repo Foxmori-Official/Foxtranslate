@@ -186,6 +186,9 @@ describe('popup i18n（uiLang）', () => {
     expect(app.querySelector('[data-destination="files"]')?.getAttribute('aria-label')).toBe('文档翻译')
     expect(app.querySelector('[data-destination="review"]')?.getAttribute('aria-label')).toBe('生词复习 · 生词 3 · 到期 2')
     expect(app.querySelector('[data-destination="settings"]')?.getAttribute('aria-label')).toBe('设置')
+    expect(Array.from(app.querySelectorAll('.popup-nav-label')).map(label => label.textContent))
+      .toEqual(['文档翻译', '生词复习', '设置'])
+    expect(app.querySelector('a[href$="onboarding.html"]')).toBeNull()
     expect(app.querySelector('.due-badge')?.textContent).toBe('2')
     expect(app.querySelector('.popup-account-link')?.textContent).toBe('Foxmori 账户')
     // 显示模式选项
@@ -212,6 +215,8 @@ describe('popup i18n（uiLang）', () => {
     expect(app.querySelector('[data-destination="files"]')?.getAttribute('aria-label')).toBe('Documents')
     expect(app.querySelector('[data-destination="review"]')?.getAttribute('aria-label')).toBe('Vocabulary · Words 3 · Due 2')
     expect(app.querySelector('[data-destination="settings"]')?.getAttribute('aria-label')).toBe('Settings')
+    expect(Array.from(app.querySelectorAll('.popup-nav-label')).map(label => label.textContent))
+      .toEqual(['Documents', 'Vocabulary', 'Settings'])
     expect(app.querySelector('.due-badge')?.textContent).toBe('2')
     expect(app.querySelector('.popup-account-link')?.textContent).toBe('Foxmori account')
     const modeSel = app.querySelector('.row[data-row="displayMode"] select') as HTMLSelectElement

@@ -176,6 +176,10 @@ try {
   await noHorizontalOverflow(popup)
   assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().width), 360)
   assert.equal(await popup.locator('.popup-header .fox-nav a').count(), 3)
+  for (const label of ['Dokumente', 'Vokabeln', 'Einstellungen']) {
+    assert.equal(await popup.getByText(label, { exact: true }).isVisible(), true)
+  }
+  assert.equal(await popup.locator('a[href$="onboarding.html"]').count(), 0)
   assert.equal(await popup.getByRole('switch').count(), 3)
   assert.equal(await popup.locator('html').getAttribute('lang'), 'de')
   assert.equal(await popup.locator('[data-row="expert"]').isVisible(), false)
@@ -195,6 +199,9 @@ try {
   await config({ uiLang: 'zh-CN', style: { styleId: 'soft-gray' } })
   await popup.reload()
   await popup.locator('.controls').waitFor()
+  for (const label of ['文档翻译', '生词复习', '设置']) {
+    assert.equal(await popup.getByText(label, { exact: true }).isVisible(), true)
+  }
   const hoverSwitch = popup.getByRole('switch', { name: '悬停翻译', exact: true })
   await hoverSwitch.click()
   await popup.locator('.quick-switch[aria-checked="false"]').filter({ hasText: '悬停翻译' }).waitFor()
@@ -408,6 +415,11 @@ try {
   await provider.getByRole('button', { name: '设为当前引擎', exact: true }).click()
   await provider.locator('[data-engine-id="foxmori"] .engine-current').waitFor()
   assert.equal((await config({})).engine.provider, 'foxmori')
+  await popup.reload()
+  await popup.locator('[data-row="expert"]').waitFor()
+  await noHorizontalOverflow(popup)
+  assert.ok((await popup.locator('body').boundingBox()).height <= 600)
+  await capture(popup, 'foxtranslate-popup-ai')
   await provider.locator('[data-group="assist"]').click()
   await provider.locator('[data-tab="experts"]').click()
   await provider.getByText('当前引擎将使用「通用」策略', { exact: true }).waitFor()

@@ -204,6 +204,10 @@ function buildHeader(root: HTMLElement): void {
   logo.width = logo.height = 26
   brand.append(logo, el('span', '', 'Foxtranslate'))
   const nav = appNavigation(null, config.uiLang, true)
+  nav.classList.add('popup-navigation')
+  for (const link of nav.querySelectorAll<HTMLAnchorElement>('a')) {
+    link.append(el('span', 'popup-nav-label', link.getAttribute('aria-label') ?? ''))
+  }
   reviewLink = nav.querySelector('[data-destination="review"]')
   dueBadge = el('span', 'due-badge')
   dueBadge.hidden = true
@@ -696,18 +700,6 @@ function buildControls(root: HTMLElement): void {
   root.append(section)
 }
 
-// ===== 底部 =====
-
-function buildFooter(root: HTMLElement): void {
-  const footer = el('footer', 'popup-footer')
-  const guide = el('a', '', uiCopy('guide', config.uiLang))
-  guide.href = chrome.runtime.getURL('onboarding.html')
-  guide.target = '_blank'
-  guide.rel = 'noopener noreferrer'
-  footer.append(guide)
-  root.append(footer)
-}
-
 async function refreshStats(): Promise<void> {
   try {
     const s = await sendBg<StatsResult>({ kind: 'getStats' })
@@ -753,7 +745,6 @@ export async function init(): Promise<void> {
   buildStatus(main)
   buildControls(main)
   app.append(main)
-  buildFooter(app)
   updateExpertVisibility()
 
   renderStatus()
