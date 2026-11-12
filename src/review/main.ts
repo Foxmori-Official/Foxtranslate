@@ -217,13 +217,11 @@ function showToast(message: string): void {
 /** 进入复习布局：顶部栏 + 舞台（卡片/评分/提示） */
 function mountReviewLayout(): void {
   resultShown = null
-  appRoot.replaceChildren(topbar, stage, toast)
   stage.replaceChildren(cardScene, gradesBox, kbdHint)
 }
 
 /** 进入完成态布局：顶部栏 + 结果面板 */
 function mountResultLayout(panel: HTMLElement): void {
-  appRoot.replaceChildren(topbar, stage, toast)
   stage.replaceChildren(panel)
 }
 
@@ -435,6 +433,7 @@ function showInitialEmpty(): void {
 
 /** 一轮复习结束：刷新队列，若仍有到期卡可继续 */
 async function finishSession(): Promise<void> {
+  await pendingGrade
   try {
     const words = await sendBg<WordItem[]>({ kind: 'getWords' })
     queueSource = words
@@ -532,6 +531,7 @@ document.addEventListener('keydown', (e) => {
 // ===== 启动 =====
 
 async function boot(): Promise<void> {
+  appRoot.replaceChildren(topbar, stage, toast)
   mountReviewLayout()
   // 先读界面语言，再以该语言渲染文案
   try {
