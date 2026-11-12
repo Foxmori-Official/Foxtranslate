@@ -114,6 +114,7 @@ export class YouTubeRenderer {
       '.tv-panel.tv-show{display:flex;}',
       '.tv-orig{--ft-caption-base:clamp(12px,1.85vmin,22px);}',
       '.tv-trans{--ft-caption-base:clamp(14px,2.35vmin,30px);}',
+      '.tv-trans:empty{display:none;}',
       // 单词 span：面板整体 pointer-events:none，单词单独放开
       '.tv-yt-word{pointer-events:auto;cursor:pointer;border-radius:2px;}',
       '.tv-yt-word:hover{text-decoration:underline;}',
@@ -172,14 +173,15 @@ export class YouTubeRenderer {
 
   setPreferences(preferences: SubtitlePreferences): void {
     if (this.panel && this.origLine && this.transLine) {
+      const modeChanged = this.panel.dataset.mode !== preferences.displayMode
       applyCaptionStyle(this.panel, this.origLine, this.transLine, preferences)
-      if (preferences.displayMode === 'translationOnly') this.closeWordCard()
+      if (modeChanged) this.syncToTime(true)
     }
   }
 
   /** 单条译文到达：就地更新，若正在显示则刷新 */
   updateCue(cue: SubtitleCue): void {
-    if (cue.start * 1000 === this.currentCueStart) this.syncToTime(true)
+    if (cue.start * 1000 === this.currentCueStart) this.renderTranslation(cue)
   }
 
   setEnabled(on: boolean): void {
@@ -219,7 +221,7 @@ export class YouTubeRenderer {
     if (document.getElementById(NATIVE_HIDE_STYLE_ID)) return
     const style = document.createElement('style')
     style.id = NATIVE_HIDE_STYLE_ID
-    style.textContent = '.ytp-caption-window-container{visibility:hidden!important;}'
+    style.textContent = '#movie_player .ytp-caption-window-container{visibility:hidden!important;}'
     document.head.appendChild(style)
   }
 
@@ -277,8 +279,15 @@ export class YouTubeRenderer {
         this.origLine.appendChild(document.createTextNode(tok.text))
       }
     }
-    this.transLine.textContent = cue.translation ?? '...'
+    this.renderTranslation(cue)
     this.applyVisibility()
+  }
+
+  private renderTranslation(cue: SubtitleCue): void {
+    if (this.transLine) {
+      const translationOnly = this.panel?.dataset.mode === 'translationOnly'
+      this.transLine.textContent = cue.translation ?? (translationOnly ? cue.text : '')
+    }
   }
 
   private applyVisibility(): void {

@@ -8,7 +8,7 @@ Foxtranslate 使用 GPL-3.0 许可。现有源文件中的归属说明及 LICENS
 | --- | --- |
 | [KISS Translator](https://github.com/fishjar/kiss-translator) | 富文本占位符、聚合翻译、划词、悬停与输入框翻译 |
 | [FluentRead](https://github.com/FluentRead/FluentRead) | 分层架构、阅读辅助、文档与视频使用流程 |
-| [Read Frog](https://github.com/mengxi-ream/read-frog) | YouTube 播放器菜单、字幕预览、模型配置与生词复习 |
+| [Read Frog](https://github.com/mengxi-ream/read-frog) | YouTube 播放器菜单、CC 选轨与授权参数、字幕预取、模型配置与生词复习 |
 | [Interline](https://github.com/eigenlux-ai/interline-translator) | 免费引擎、译文样式、术语签名与缓存 |
 | [OpenImmersive Translator](https://github.com/OpenImmersive/OpenImmersive-Translator) | 本地敏感信息脱敏与免费引擎降级 |
 | [MTranBrowser](https://github.com/xxnuo/MTranBrowser) | 可见内容调度、版式继承、悬停快捷键与悬浮入口 |

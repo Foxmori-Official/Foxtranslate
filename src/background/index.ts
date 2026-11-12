@@ -36,7 +36,8 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       assertExtensionPage(sender)
       return fetchProviderModels(config, msg.provider)
     case 'translate': {
-      const result = await translate(msg.text, { targetLang: msg.targetLang, sourceLang: msg.sourceLang, context: msg.context, immediate: msg.immediate }, config)
+      const { targetLang, sourceLang, context, immediate, scope } = msg
+      const result = await translate(msg.text, { targetLang, sourceLang, context, immediate, scope }, config)
       await incrementTranslatedChars(msg.text.length)
       return result
     }

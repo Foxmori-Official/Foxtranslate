@@ -4,7 +4,7 @@ import { uiCopy } from '../shared/interface'
 import { renderSubtitlePreferences, resetSubtitleStyle, SUBTITLE_SETTINGS_CSS } from '../shared/subtitleSettings'
 import type { SubtitleDownloadMode } from './subtitleDownload'
 
-export type PlayerState = 'off' | 'loading' | 'ready' | 'empty' | 'error'
+export type PlayerState = 'off' | 'loading' | 'ready' | 'empty' | 'error' | 'translateError'
 type View = 'main' | 'settings' | 'style' | 'download'
 type CopyKey = Parameters<typeof featureCopy>[0]
 interface State {
@@ -103,13 +103,14 @@ export class PlayerControl {
 
   mount(player: HTMLElement): void {
     const controls = player.querySelector('.ytp-right-controls')
-    if (!controls || this.button?.parentElement === controls) return
+    if (!controls || (this.button?.parentElement === controls && this.host?.parentElement === player)) return
     this.destroy()
 
     const button = document.createElement('button')
     button.className = 'ytp-button foxtranslate-caption-button'
     button.type = 'button'
     button.setAttribute('translate', 'no')
+    button.setAttribute('data-tv-owned', '1')
     button.setAttribute('aria-haspopup', 'dialog')
     button.style.cssText = 'width:44px!important;border:0;background:transparent;vertical-align:top;position:relative;'
     const logo = document.createElement('img')
@@ -118,11 +119,16 @@ export class PlayerControl {
     logo.width = logo.height = 28
     logo.draggable = false
     logo.style.cssText = 'position:absolute;inset:0;display:block;width:28px;height:28px;margin:auto;object-fit:contain;pointer-events:none;'
-    button.append(logo)
+    const badge = document.createElement('span')
+    badge.className = 'foxtranslate-caption-state'
+    badge.setAttribute('aria-hidden', 'true')
+    badge.style.cssText = 'position:absolute;right:0;bottom:3px;min-width:22px;padding:2px 3px;border-radius:4px;font:700 8px/1 system-ui;text-align:center;pointer-events:none;'
+    button.append(logo, badge)
 
     const quickOff = document.createElement('button')
     quickOff.className = 'ytp-button foxtranslate-caption-off'
     quickOff.type = 'button'
+    quickOff.setAttribute('data-tv-owned', '1')
     quickOff.style.cssText = 'width:30px!important;border:0;color:#f2f5ed;background:transparent;vertical-align:top;'
     quickOff.append(icon('close'))
 
@@ -138,6 +144,7 @@ export class PlayerControl {
 
     const notice = document.createElement('div')
     notice.className = 'foxtranslate-caption-status'
+    notice.setAttribute('data-tv-owned', '1')
     notice.setAttribute('role', 'status')
     notice.style.cssText = 'position:absolute;left:14px;bottom:54px;z-index:61;max-width:min(360px,72%);padding:8px 12px;border-radius:8px;background:#26392e;color:#fff;font:13px/1.4 system-ui;pointer-events:none;'
     notice.hidden = true
@@ -193,9 +200,11 @@ export class PlayerControl {
     }
   }
 
-  private statusKey(): 'ytLoading' | 'ytReady' | 'ytEmpty' | 'ytError' | 'ytOff' {
-    if (this.state.state === 'off') return 'ytOff'
-    return { loading: 'ytLoading', ready: 'ytReady', empty: 'ytEmpty', error: 'ytError' }[this.state.state] as ReturnType<PlayerControl['statusKey']>
+  private statusKey() {
+    return ({
+      off: 'ytOff', loading: 'ytLoading', ready: 'ytReady', empty: 'ytEmpty',
+      error: 'ytError', translateError: 'ytRetry',
+    } as const)[this.state.state]
   }
 
   private updateButtons(): void {
@@ -203,10 +212,17 @@ export class PlayerControl {
     const label = 'Foxtranslate · ' + this.copy('captionMenu')
     this.button.title = label
     this.button.setAttribute('aria-label', label)
+    this.button.setAttribute('aria-description', uiCopy(this.statusKey(), this.state.lang))
     this.button.setAttribute('aria-expanded', String(this.host?.hidden === false))
     this.button.dataset.state = this.state.state
     this.button.dataset.enabled = String(this.state.enabled)
-    this.button.style.boxShadow = this.state.enabled ? 'inset 0 -3px #a9bf8d' : 'none'
+    const badge = this.button.querySelector<HTMLElement>('.foxtranslate-caption-state')
+    const status = this.state.enabled ? 'ON' : 'OFF'
+    if (badge && badge.textContent !== status) {
+      badge.textContent = status
+      badge.style.backgroundColor = this.state.enabled ? '#a9bf8d' : '#343434'
+      badge.style.color = this.state.enabled ? '#1d2a23' : '#fff'
+    }
     const off = this.copy('quickOff')
     this.quickOff.title = off
     this.quickOff.setAttribute('aria-label', off)

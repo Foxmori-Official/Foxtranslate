@@ -36,10 +36,10 @@ const COPY = {
   ytOn: ['双语字幕已开启，点击关闭', 'Bilingual captions on. Click to turn off.', 'Zweisprachige Untertitel an. Zum Ausschalten klicken.'],
   ytOff: ['开启双语字幕', 'Turn on bilingual captions', 'Zweisprachige Untertitel einschalten'],
   ytLoading: ['正在读取字幕…', 'Loading captions…', 'Untertitel werden geladen…'],
-  ytEmpty: ['此视频未提供可读取的字幕。开启 CC，并关闭后重新开启字幕翻译以重试。', 'No readable captions found. Enable CC, then turn caption translation off and on to retry.', 'Keine lesbaren Untertitel gefunden. CC aktivieren und Untertitelübersetzung aus- und wieder einschalten.'],
-  ytError: ['字幕加载失败，请关闭后重新开启字幕翻译以重试。', 'Could not load captions. Turn caption translation off and on to retry.', 'Untertitel konnten nicht geladen werden. Untertitelübersetzung aus- und wieder einschalten.'],
+  ytEmpty: ['此视频未提供可读取的 CC 字幕。', 'This video has no readable CC track.', 'Für dieses Video ist keine lesbare Untertitelspur verfügbar.'],
+  ytError: ['无法读取 YouTube 字幕。请检查播放器的原生 CC 后重试。', 'Could not read YouTube captions. Check the player’s CC and try again.', 'YouTube-Untertitel konnten nicht gelesen werden. Prüfen Sie die Untertitel im Player und versuchen Sie es erneut.'],
   ytReady: ['字幕翻译已就绪', 'Caption translation ready', 'Untertitelübersetzung bereit'],
-  ytRetry: ['部分字幕翻译失败，请检查翻译服务或点击重试。', 'Some captions failed to translate. Check your service or click to retry.', 'Einige Untertitel konnten nicht übersetzt werden. Dienst prüfen oder erneut versuchen.'],
+  ytRetry: ['当前字幕翻译失败，请检查翻译服务。', 'Could not translate the current caption. Check your translation service.', 'Der aktuelle Untertitel konnte nicht übersetzt werden. Prüfen Sie den Übersetzungsdienst.'],
 } as const
 
 type CopyKey = keyof typeof COPY

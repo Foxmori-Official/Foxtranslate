@@ -7,35 +7,34 @@ import type { BgResponse } from '../shared/protocol'
 import { PlayerControl, type PlayerState } from './playerControl'
 // YouTube 双语字幕主编排：配置开关 → SPA 导航 → 获取 → 前瞻翻译调度 → 渲染
 import { getSubtitlesConfig, translateText, type SubtitleCue } from './types'
-import { fetchYouTubeCues } from './ytFetch'
+import { fetchYouTubeCues, getYouTubeTrackKey, type YouTubeCaptions } from './ytFetch'
 import { YouTubeRenderer } from './ytRender'
 
-const LOOK_AHEAD_MS = 30_000 // 前瞻窗口（× playbackRate）
-const BATCH_MAX = 8
+const LOOK_AHEAD_SECONDS = 30
+const PRIORITY_LEAD_SECONDS = 2
+const MAX_PREFETCH_CUES = 5
 const FAILED_RETRY_MS = 5_000
-const SEEK_SETTLE_MS = 500
 const NAV_POLL_MS = 1000
 const PLAYER_WAIT_MS = 10_000
 
 interface Session {
-  id: number
   videoId: string
-  cues: SubtitleCue[]
-  translatedStarts: Set<number> // key: Math.round(start*1000)
-  translatingStarts: Set<number>
-  failedAt: Map<number, number> // startMs → 失败时间戳（冷却后可重试）
+  captions: YouTubeCaptions | null
+  trackRequest: Promise<YouTubeCaptions | null> | null
+  checkTrackAfterLoad: boolean
+  translating: Set<SubtitleCue>
+  failedAt: WeakMap<SubtitleCue, number>
+  priorityPending: boolean
+  prefetchPending: boolean
   renderer: YouTubeRenderer | null
   video: HTMLVideoElement | null
-  seekSettleTimer: number | null
-  seeking: boolean
-  disposed: boolean
+  controller: AbortController
 }
 
 let booted = false
 let enabled = false
 let targetLang = 'zh-CN'
-let cueConcurrency = 3
-let sessionSeq = 0
+let prefetchLimit = 2
 let session: Session | null = null
 let navPollTimer: number | null = null
 let uiLang = 'auto'
@@ -61,9 +60,12 @@ const control = new PlayerControl({
     const language = targetLang
     const translationAbove = preferences.translationPosition === 'above'
     if (!videoId) throw new Error(featureCopy('noTrack', uiLang))
-    const cues = session?.videoId === videoId && session.cues.length ? session.cues : await fetchYouTubeCues(videoId)
+    const pendingTrack = session?.videoId === videoId && (session.captions || playerState === 'loading')
+      ? session.trackRequest : null
+    const captions = await (pendingTrack ?? fetchYouTubeCues(videoId))
     await downloadSubtitles({
-      cues: cues ?? [], videoId, targetLang: language, uiLang, mode, translationAbove, progress,
+      cues: captions?.cues ?? [], videoId,
+      targetLang: language, uiLang, mode, translationAbove, progress,
       isCurrent: () => revision === navigationRevision && currentVideoId() === videoId && targetLang === language,
     })
   },
@@ -108,7 +110,8 @@ function applyConfiguration(raw: unknown): void {
     teardownSession()
   }
   uiLang = config.uiLang
-  cueConcurrency = config.batch.enabled && isAiProvider(config.engine.provider) ? BATCH_MAX : 3
+  prefetchLimit = config.batch.enabled && isAiProvider(config.engine.provider)
+    ? Math.min(MAX_PREFETCH_CUES, Math.max(1, config.batch.maxTexts || 1)) : 2
   hotkey = config.hotkeys.toggleSubtitles
   applyPreferences(config.subtitles)
 }
@@ -128,6 +131,7 @@ async function bootstrap(): Promise<void> {
   })
   window.addEventListener('yt-navigate-finish', onNavigate)
   document.addEventListener('yt-navigate-start', onNavigateStart)
+  window.addEventListener('message', onNativeTimedtext)
   document.addEventListener('keydown', event => {
     if (event.defaultPrevented || event.repeat || event.isComposing || !currentVideoId()) return
     if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return
@@ -161,6 +165,26 @@ function onNavigateStart(): void {
   control.resetForVideo()
 }
 
+function onNativeTimedtext(event: MessageEvent): void {
+  if (event.source !== window || event.origin !== location.origin || event.data?.type !== 'tv-yt-native-timedtext') return
+  const s = session
+  if (!s || !isCurrent(s) || event.data.videoId !== s.videoId) return
+  if (s.captions) void refreshSelectedTrack(s)
+  else if (playerState === 'loading') s.checkTrackAfterLoad = true
+  else restartCaptionTrack()
+}
+
+async function refreshSelectedTrack(s: Session): Promise<void> {
+  const selected = await getYouTubeTrackKey(s.videoId, s.controller.signal)
+  if (selected && selected !== s.captions?.trackKey && isCurrent(s)) restartCaptionTrack()
+}
+
+function restartCaptionTrack(): void {
+  navigationRevision++
+  teardownSession()
+  onNavigate()
+}
+
 function onNavigate(): void {
   const videoId = currentVideoId()
   if (videoId !== activeVideoId) {
@@ -178,68 +202,75 @@ function onNavigate(): void {
     return
   }
   if (session?.video && !session.video.isConnected) teardownSession()
-  if (session && session.videoId === videoId && !session.disposed) {
+  if (session && session.videoId === videoId) {
     updateControl(playerState)
+    translationTick(session)
     return
   }
   teardownSession()
   const s: Session = {
-    id: ++sessionSeq,
     videoId,
-    cues: [],
-    translatedStarts: new Set(),
-    translatingStarts: new Set(),
-    failedAt: new Map(),
+    captions: null,
+    trackRequest: null,
+    checkTrackAfterLoad: false,
+    translating: new Set(),
+    failedAt: new WeakMap(),
+    priorityPending: false,
+    prefetchPending: false,
     renderer: null,
     video: null,
-    seekSettleTimer: null,
-    seeking: false,
-    disposed: false,
+    controller: new AbortController(),
   }
   session = s
   updateControl('loading')
   void loadSession(s).catch(() => {
-    if (!s.disposed && session === s) updateControl('error')
+    if (isCurrent(s)) updateControl('error')
   })
 }
 
 function teardownSession(): void {
   if (!session) return
-  session.disposed = true
-  sessionSeq++ // 使在途异步回调失效
-  if (session.seekSettleTimer !== null) window.clearTimeout(session.seekSettleTimer)
-  detachVideoListeners(session)
+  session.controller.abort()
   session.renderer?.destroy()
   session = null
+}
+
+function isCurrent(s: Session): boolean {
+  return session === s && currentVideoId() === s.videoId
 }
 
 // ===== 会话加载：找播放器 → 拉字幕 → 渲染 + 调度 =====
 
 async function loadSession(s: Session): Promise<void> {
   const found = await waitForPlayer(s)
+  if (!isCurrent(s)) return
   if (!found) {
-    if (!s.disposed && session === s) updateControl('error')
+    updateControl('error')
     return
   }
-  if (s.disposed || session?.id !== s.id) return
   const [player, video] = found
   s.video = video
 
-  const cues = await fetchYouTubeCues(s.videoId)
-  if (s.disposed || session?.id !== s.id) return
-  if (!cues || cues.length === 0) {
+  const { signal } = s.controller
+  s.trackRequest = fetchYouTubeCues(s.videoId, signal)
+  const captions = await s.trackRequest
+  if (!isCurrent(s)) return
+  if (!captions) {
     updateControl('empty')
     return
   }
 
-  s.cues = cues
+  s.captions = captions
   const renderer = new YouTubeRenderer()
   renderer.mount(player, video)
   renderer.setPreferences(preferences)
-  renderer.setCues(cues)
+  renderer.setCues(captions.cues)
   s.renderer = renderer
   updateControl('ready')
-  attachVideoListeners(s)
+  if (s.checkTrackAfterLoad) void refreshSelectedTrack(s)
+  for (const event of ['timeupdate', 'seeked', 'ratechange']) {
+    video.addEventListener(event, () => translationTick(s), { signal })
+  }
   translationTick(s)
 }
 
@@ -249,7 +280,7 @@ function waitForPlayer(
   return new Promise((resolve) => {
     const deadline = Date.now() + PLAYER_WAIT_MS
     const probe = (): void => {
-      if (s.disposed || session?.id !== s.id) {
+      if (!isCurrent(s)) {
         resolve(null)
         return
       }
@@ -258,10 +289,11 @@ function waitForPlayer(
         player?.querySelector<HTMLVideoElement>('video') ??
         null
       if (player && video) {
-        resolve([player, video])
-        return
-      }
-      if (Date.now() > deadline) {
+        if (!player.matches('.ad-showing, .ad-interrupting')) {
+          resolve([player, video])
+          return
+        }
+      } else if (Date.now() > deadline) {
         resolve(null)
         return
       }
@@ -271,121 +303,80 @@ function waitForPlayer(
   })
 }
 
-// ===== 视频事件：timeupdate 驱动翻译调度；seek 暂停/恢复 =====
-
-function attachVideoListeners(s: Session): void {
-  const video = s.video
-  if (!video) return
-  const h = handlersFor(s)
-  video.addEventListener('timeupdate', h.onTimeUpdate)
-  video.addEventListener('seeking', h.onSeeking)
-  video.addEventListener('seeked', h.onSeeked)
-}
-
-function detachVideoListeners(s: Session): void {
-  const video = s.video
-  if (!video) return
-  const h = handlersFor(s)
-  video.removeEventListener('timeupdate', h.onTimeUpdate)
-  video.removeEventListener('seeking', h.onSeeking)
-  video.removeEventListener('seeked', h.onSeeked)
-}
-
-// 事件回调挂在 session 对象外，避免接口膨胀：用 WeakMap 存
-type SessionHandlers = {
-  onTimeUpdate: () => void
-  onSeeking: () => void
-  onSeeked: () => void
-}
-const sessionHandlers = new WeakMap<Session, SessionHandlers>()
-
-function handlersFor(s: Session): SessionHandlers {
-  let h = sessionHandlers.get(s)
-  if (!h) {
-    h = {
-      onTimeUpdate: () => translationTick(s),
-      onSeeking: () => {
-        s.seeking = true
-        if (s.seekSettleTimer !== null) {
-          window.clearTimeout(s.seekSettleTimer)
-          s.seekSettleTimer = null
-        }
-      },
-      onSeeked: () => {
-        // 回稳 500ms 后恢复翻译调度
-        s.seekSettleTimer = window.setTimeout(() => {
-          s.seekSettleTimer = null
-          s.seeking = false
-          translationTick(s)
-        }, SEEK_SETTLE_MS)
-      },
-    }
-    sessionHandlers.set(s, h)
+// Jump directly to the first cue that has not expired.
+function firstCueAfter(cues: SubtitleCue[], time: number): number {
+  let low = 0
+  let high = cues.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (cues[middle].end <= time) low = middle + 1
+    else high = middle
   }
-  return h
-}
-
-// ===== 翻译调度：当前字幕优先、前瞻预取、去重与会话隔离 =====
-
-function cueKey(cue: SubtitleCue): number {
-  return Math.round(cue.start * 1000)
+  return low
 }
 
 function translationTick(s: Session): void {
-  if (!enabled || s.disposed || session?.id !== s.id) return
-  if (s.seeking) return
-  const video = s.video
-  if (!video || s.cues.length === 0) return
+  const { video, captions } = s
+  if (!isCurrent(s) || !video || !captions || video.seeking ||
+      video.closest('.ad-showing, .ad-interrupting')) return
 
-  const rate = video.playbackRate || 1
-  const nowMs = video.currentTime * 1000
-  const hi = nowMs + LOOK_AHEAD_MS * rate
+  const { cues } = captions
+  const time = video.currentTime
+  const first = firstCueAfter(cues, time)
+  const next = cues[first]
+  if (!next) return
+  if (playerState === 'translateError' && next.start <= time && next.translation !== undefined) updateControl('ready')
+
   const now = Date.now()
+  const canTranslate = (cue: SubtitleCue) => cue.translation === undefined && !s.translating.has(cue) &&
+    now - (s.failedAt.get(cue) ?? -Infinity) >= FAILED_RETRY_MS
 
-  const capacity = Math.min(BATCH_MAX, cueConcurrency - s.translatingStarts.size)
-  if (capacity <= 0) return
+  // Keep a slot for the playing (or imminent) cue when the prefetch batch is busy.
+  if (!s.priorityPending && next.start <= time + PRIORITY_LEAD_SECONDS && canTranslate(next)) {
+    s.priorityPending = true
+    void translateCue(s, next, true).finally(() => {
+      s.priorityPending = false
+      translationTick(s)
+    })
+  }
+  if (s.prefetchPending) return
+
+  const rate = Math.min(4, Math.max(1, video.playbackRate || 1))
+  const horizon = time + LOOK_AHEAD_SECONDS * rate
   const pending: SubtitleCue[] = []
-  for (const cue of s.cues) {
-    if (pending.length >= capacity) break
-    const key = cueKey(cue)
-    if (cue.end * 1000 <= nowMs || key > hi) continue
-    if (cue.translation !== undefined) continue
-    if (s.translatedStarts.has(key) || s.translatingStarts.has(key)) continue
-    const failedAt = s.failedAt.get(key)
-    if (failedAt !== undefined && now - failedAt < FAILED_RETRY_MS) continue
-    pending.push(cue)
+  for (let i = first; i < cues.length && pending.length < prefetchLimit; i++) {
+    const cue = cues[i]
+    if (cue.start > horizon) break
+    if (canTranslate(cue)) pending.push(cue)
   }
-  if (pending.length === 0) return
+  if (!pending.length) return
 
-  for (const cue of pending) s.translatingStarts.add(cueKey(cue))
+  s.prefetchPending = true
+  void Promise.all(pending.map(cue => translateCue(s, cue, false))).finally(() => {
+    s.prefetchPending = false
+    translationTick(s)
+  })
+}
 
-  // 当前字幕单独排到后台队列前部，后续字幕可聚合，沿用引擎并发限制。
-  const queue = pending.slice()
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      if (s.disposed || session?.id !== s.id) return
-      const cue = queue.shift()
-      if (!cue) return
-      const key = cueKey(cue)
-      try {
-        const current = cue.start <= video.currentTime && cue.end > video.currentTime
-        const text = await translateText(cue.text, targetLang, current)
-        // sessionId 校验：切换视频后丢弃过期结果
-        if (s.disposed || session?.id !== s.id) return
-        cue.translation = text
-        s.translatedStarts.add(key)
-        s.failedAt.delete(key)
-        s.renderer?.updateCue(cue)
-        if (!s.failedAt.size && playerState === 'error') updateControl('ready')
-      } catch {
-        if (s.disposed || session?.id !== s.id) return
-        updateControl('error')
-        s.failedAt.set(key, Date.now())
-      } finally {
-        s.translatingStarts.delete(key)
-      }
-    }
+async function translateCue(s: Session, cue: SubtitleCue, immediate: boolean): Promise<void> {
+  s.translating.add(cue)
+  const isPlaying = () => {
+    const time = s.video?.currentTime ?? -1
+    return cue.start <= time && time < cue.end
   }
-  const workers = Math.min(cueConcurrency, pending.length)
-  for (let i = 0; i < workers; i++) void worker().finally(() => translationTick(s))
+  try {
+    const translation = await translateText(cue.text, targetLang, { immediate, scope: 'youtube' })
+    if (!isCurrent(s)) return
+    if (!translation.trim()) throw new Error('Translation returned no text')
+    cue.translation = translation
+    s.failedAt.delete(cue)
+    s.renderer?.updateCue(cue)
+    if (playerState === 'translateError' && isPlaying()) updateControl('ready')
+  } catch {
+    if (!isCurrent(s)) return
+    s.failedAt.set(cue, Date.now())
+    if (isPlaying()) updateControl('translateError')
+  } finally {
+    s.translating.delete(cue)
+  }
 }

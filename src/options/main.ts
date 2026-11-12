@@ -463,7 +463,7 @@ function buildShell(root: HTMLElement): void {
     groupItems.append(btn)
   }
   workspaceNav = buildWorkspaceNavigation()
-  sidebar.append(brand, nav)
+  sidebar.append(brand, nav, workspaceNav)
 
   const sideFooter = el('div', 'side-footer')
   const siteLink = el('a', 'side-footer-link', 'foxmori.com')
@@ -478,7 +478,7 @@ function buildShell(root: HTMLElement): void {
   privacyLink.href = chrome.runtime.getURL('privacy.html')
   privacyLink.target = '_blank'
   privacyLink.rel = 'noopener noreferrer'
-  sideFooter.append(siteLink, guideLink, privacyLink, workspaceNav)
+  sideFooter.append(siteLink, guideLink, privacyLink)
   sidebar.append(sideFooter)
 
   const main = el('main', 'main')

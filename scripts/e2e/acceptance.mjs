@@ -32,6 +32,10 @@ try {
     globalThis.fetch = async (url, init) => {
       if (String(url).startsWith('https://translate.googleapis.com/')) {
         const text = new URL(String(url)).searchParams.get('q') || new URLSearchParams(init?.body).get('q') || 'Hello'
+        if (text.startsWith('Prefetch fixture ') && globalThis.captionPrefetchGate) {
+          globalThis.markCaptionPrefetchStarted()
+          await globalThis.captionPrefetchGate
+        }
         return Response.json([[['译文 · ' + text, text]], null, 'en'])
       }
       if (String(url) === 'https://api.foxmori.com/v1/models') {
@@ -261,7 +265,11 @@ try {
   assert.equal(await options.locator('.settings-workspace-nav a').count(), 2)
   assert.equal(await options.locator('.settings-workspace-nav [data-destination="settings"]').count(), 0)
   assert.equal(await options.locator('[data-tab="account"], [data-tab="writing"], .account-overview').count(), 0)
-  assert.ok(await options.locator('.side-footer').evaluate(footer => footer.lastElementChild.classList.contains('settings-workspace-nav')))
+  assert.deepEqual(await options.locator('.settings-workspace-nav').evaluate(nav => ({
+    afterDataGroup: Boolean(nav.previousElementSibling?.lastElementChild?.querySelector('[data-group="data"]')),
+    outsideDetails: nav.closest('details') === null,
+    footerFollows: nav.nextElementSibling?.classList.contains('side-footer'),
+  })), { afterDataGroup: true, outsideDetails: true, footerFollows: true })
   assert.equal(await options.locator('[data-tab="glossaryLibs"]').isVisible(), false)
   await capture(options, 'foxtranslate-settings')
   await options.setViewportSize({ width: 390, height: 780 })
@@ -525,25 +533,59 @@ try {
   await review.close()
 
   // Hostname, player, bridge and scripts match production. Network data is deterministic.
+  let unsignedCaptionReads = 0
+  let authorizedCaptionReads = 0
   await browser.route('https://www.youtube.com/**', async route => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/timedtext') {
-      await route.fulfill({ json: { events: [{ tStartMs: 0, dDurationMs: 30_000, segs: [{ utf8: 'Learn something new every day.' }] }, { tStartMs: 40_000, dDurationMs: 5000, segs: [{ utf8: 'A later caption outside the preview window.' }] }] } })
+      if (url.searchParams.get('pot') !== 'fixture-proof') {
+        unsignedCaptionReads++
+        await route.fulfill({ status: 200, body: '' })
+        return
+      }
+      if (url.searchParams.get('cplayer') === 'UNIPLAYER') authorizedCaptionReads++
+      if (url.searchParams.get('lang') === 'fr') {
+        await route.fulfill({ json: { events: [
+          { tStartMs: 0, dDurationMs: 30_000, segs: [{ utf8: 'Bonjour, voici la piste française.' }] },
+        ] } })
+        return
+      }
+      await route.fulfill({ json: { events: [
+        { tStartMs: 0, dDurationMs: 30_000, wWinId: 1, segs: [{ utf8: 'Learn something new every day.' }] },
+        { tStartMs: 31_000, dDurationMs: 3000, wWinId: 1, segs: [{ utf8: 'Prefetch fixture one.' }] },
+        { tStartMs: 34_000, dDurationMs: 3000, wWinId: 1, segs: [{ utf8: 'Prefetch fixture two.' }] },
+        { tStartMs: 37_000, dDurationMs: 3000, wWinId: 1, segs: [{ utf8: 'Prefetch fixture three.' }] },
+        { tStartMs: 60_000, dDurationMs: 5000, wWinId: 1, segs: [{ utf8: 'A later caption outside the preview window.' }] },
+      ] } })
       return
     }
     if (url.pathname === '/fixture-player.js') {
       await route.fulfill({ contentType: 'application/javascript', body: `
-        document.querySelector('#movie_player').getPlayerResponse = () => ({
-          videoDetails: { videoId: new URLSearchParams(location.search).get('v') },
-          captions: { playerCaptionsTracklistRenderer: { captionTracks: [{baseUrl:'https://www.youtube.com/api/timedtext?v=fixture',languageCode:'en'}] } }
+        const player = document.querySelector('#movie_player');
+        const cc = player.querySelector('.ytp-subtitles-button');
+        const videoId = () => new URLSearchParams(location.search).get('v');
+        const captions = lang => '/api/timedtext?v=' + videoId() + '&lang=' + lang;
+        player.getPlayerResponse = () => ({
+          videoDetails: { videoId: videoId() },
+          captions: { playerCaptionsTracklistRenderer: {
+            captionTracks: ['fr', 'en'].map(lang => ({ baseUrl: captions(lang), languageCode: lang, vssId: '.' + lang }))
+          } }
         });
+        const selectedLanguage = () => player.dataset.captionLang || 'en';
+        player.getOption = () => ({ vss_id: '.' + selectedLanguage(), languageCode: selectedLanguage() });
+        player.toggleSubtitles = () => {
+          cc.setAttribute('aria-pressed', 'true');
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', captions(selectedLanguage()) + '&fmt=json3&pot=fixture-proof&potc=1');
+          xhr.send();
+        };
       ` })
       return
     }
     await route.fulfill({
       contentType: 'text/html',
       headers: { 'content-security-policy': "script-src 'self'; img-src 'self'; require-trusted-types-for 'script'" },
-      body: '<!doctype html><html><head><title>Video fixture</title></head><body style="margin:0;background:#faf9f4"><div id="movie_player" style="position:relative;width:900px;height:506px;background:#19251e"><video class="html5-main-video"></video><div class="ytp-right-controls" style="position:absolute;right:16px;bottom:0;height:48px"><button class="ytp-subtitles-button" aria-pressed="true">CC</button></div></div><script src="/fixture-player.js"></script></body></html>',
+      body: '<!doctype html><html><head><title>Video fixture</title></head><body style="margin:0;background:#faf9f4"><div hidden><button class="ytp-subtitles-button" aria-pressed="true">Preview CC</button></div><div id="movie_player" style="position:relative;width:900px;height:506px;background:#19251e"><video class="html5-main-video"></video><div class="ytp-right-controls" style="position:absolute;right:16px;bottom:0;height:48px"><button class="ytp-subtitles-button" aria-pressed="false">CC</button></div></div><script src="/fixture-player.js"></script></body></html>',
     })
   })
   await config({ subtitles: { enabled: true, youtube: false, meet: true }, general: { ...stored['tv:config_v1'].general, targetLang: 'zh-CN' } })
@@ -561,16 +603,40 @@ try {
     const icon = document.querySelector('.foxtranslate-caption-button img')
     return icon?.complete && icon.naturalWidth === 48
   })
-  assert.equal(await ft.textContent(), '')
+  assert.equal(await ft.locator('.foxtranslate-caption-state').textContent(), 'OFF')
   assert.equal(await ft.locator('img').getAttribute('src'), ballIcon)
   assert.equal(await ft.getAttribute('data-enabled'), 'false')
   await openMenu()
   await video.locator('video').evaluate(element => { element.currentTime = 10 })
+  await worker.evaluate(() => {
+    let started = 0
+    globalThis.captionPrefetchStarted = new Promise(resolve => {
+      globalThis.markCaptionPrefetchStarted = () => {
+        if (++started === 2) resolve()
+      }
+    })
+    globalThis.captionPrefetchGate = new Promise(resolve => { globalThis.releaseCaptionPrefetch = resolve })
+  })
   await menu.getByRole('button', { name: '仅本次开启字幕翻译', exact: false }).click()
   const overlay = video.locator('#tv-yt-subtitle-host')
   await overlay.waitFor()
   await overlay.getByText('译文 · Learn something new every day.', { exact: true }).waitFor()
+  assert.ok(unsignedCaptionReads > 0 && authorizedCaptionReads > 0)
+  assert.equal(await video.locator('#movie_player .ytp-subtitles-button').getAttribute('aria-pressed'), 'true')
+  assert.equal(await ft.locator('.foxtranslate-caption-state').textContent(), 'ON')
   assert.equal(await ft.getAttribute('data-enabled'), 'true')
+  // The cue at the seek destination must translate before the stalled prefetch is released.
+  await worker.evaluate(() => Promise.race([
+    globalThis.captionPrefetchStarted,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Caption prefetch never started')), 5000)),
+  ]))
+  await video.locator('video').evaluate(element => {
+    element.currentTime = 61
+    element.dispatchEvent(new Event('seeked'))
+  })
+  await overlay.getByText('译文 · A later caption outside the preview window.', { exact: true }).waitFor()
+  await worker.evaluate(() => globalThis.releaseCaptionPrefetch())
+  await video.locator('video').evaluate(element => { element.currentTime = 10 })
   assert.equal((await config({})).subtitles.youtube, false)
   await openMenu()
   await capture(video, 'foxtranslate-youtube-menu')
@@ -613,6 +679,11 @@ try {
   assert.match(srtText, /00:00:00,000 --> 00:00:30,000/)
   assert.match(srtText, /译文 · Learn something new every day\.\nLearn something new every day\./)
   assert.match(srtText, /译文 · A later caption outside the preview window/)
+  await video.locator('#movie_player').evaluate(player => {
+    player.dataset.captionLang = 'fr'
+    player.toggleSubtitles()
+  })
+  await overlay.getByText('译文 · Bonjour, voici la piste française.', { exact: true }).waitFor()
   await video.getByRole('button', { name: '立即关闭字幕翻译' }).click()
   await overlay.waitFor({ state: 'detached' })
   assert.equal(await video.locator('#tv-yt-native-cap-hide').count(), 0)
@@ -662,7 +733,7 @@ try {
       await capture(live, 'foxtranslate-youtube-live-unavailable')
     }
   }
-  console.log('PASS · setup languages, compact popup, workspace navigation, bilingual privacy, Foxmori session/key/models, AI analysis/follow-ups, translation/restore, document export, vocabulary review, YouTube menu/styles/SRT/shortcuts, CSP bridge and SPA')
+  console.log('PASS · setup languages, workspace navigation, Foxmori account, AI analysis, page translation, document export, vocabulary review, YouTube CC/track changes/seek priority, menu/styles/SRT/shortcuts, CSP bridge and SPA')
 } finally {
   await browser?.close()
   await new Promise(done => fixture.close(done))

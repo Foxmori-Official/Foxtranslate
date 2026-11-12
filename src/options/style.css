@@ -1031,7 +1031,7 @@ input[type='checkbox']:not(.switch) {
   .caption-field select { min-width: 0; }
 }
 
-.settings-workspace-nav { display: grid; gap: 4px; margin-top: 8px; }
+.settings-workspace-nav { display: grid; gap: 4px; margin-block: 8px 14px; }
 .settings-workspace-nav a { display: flex; align-items: center; gap: 8px; width: auto; height: auto; min-height: 40px; padding: 8px 12px; }
 .settings-workspace-nav svg { flex: none; width: 18px; height: 18px; }
 .settings-workspace-nav span { min-width: 0; overflow-wrap: anywhere; }

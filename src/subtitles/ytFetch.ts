@@ -1,188 +1,213 @@
-// YouTube 字幕获取：MAIN world 注入桥 + postMessage 客户端 + timedtext 解析
-// 策略（read-frog）：快路径 = 内容脚本直接 fetch(baseUrl + '&fmt=json3')；
-// 失败降级 = MAIN world 捕获的带 pot token 的 timedtext URL（必要时先点开 CC 触发请求）。
 import type { SubtitleCue } from './types'
 
-export interface CaptionTrack {
+export interface TrackSelection {
+  languageCode?: string
+  kind?: string
+  vssId?: string
+}
+
+export interface CaptionTrack extends TrackSelection {
   baseUrl: string
   languageCode: string
-  kind?: string // 'asr' = 自动生成
-  vssId?: string
-  name?: string
 }
 
 export interface PlayerData {
   videoId: string
   captionTracks: CaptionTrack[]
-  cachedTimedtextUrl: string | null
+  audioCaptionTracks?: CaptionTrack[]
+  defaultTrack?: CaptionTrack
+  selectedTrack?: TrackSelection
+  cachedTimedtextUrl?: string
+  device?: string
+  clientVersion?: string
 }
 
-// ===== postMessage 协议 =====
+export interface YouTubeCaptions {
+  cues: SubtitleCue[]
+  trackKey: string
+}
 
-const REQ_TYPE = 'tv-yt-bridge-request'
-const RES_TYPE = 'tv-yt-bridge-response'
-const DEFAULT_TIMEOUT_MS = 4000
-const WAIT_TIMEDTEXT_TIMEOUT_MS = 8000
+const PLAYER_TIMEOUT_MS = 8000
+const BRIDGE_TIMEOUT_MS = 1500
+const FETCH_TIMEOUT_MS = 4000
+const PROOF_WAIT_MS = 5000
+const POLL_MS = 200
+const RETRY_MS = 600
+const DEVICE_PARAMS = ['cbrand', 'cbr', 'cbrver', 'cos', 'cosver', 'cplatform']
 
-export type BridgeAction = 'playerData' | 'waitTimedtext' | 'ensureCc'
+export function timedtextUrl(raw: string, videoId?: string): URL | null {
+  try {
+    const url = new URL(raw, location.origin)
+    const id = url.searchParams.get('v')
+    if (url.origin !== location.origin || url.pathname !== '/api/timedtext' || (videoId && id && id !== videoId)) return null
+    return url
+  } catch {
+    return null
+  }
+}
 
 interface BridgeResponse {
-  type: typeof RES_TYPE
+  type: 'tv-yt-bridge-response'
   requestId: string
   ok: boolean
-  // playerData
-  videoId?: string
-  captionTracks?: CaptionTrack[]
-  cachedTimedtextUrl?: string | null
-  // waitTimedtext
-  url?: string | null
-  error?: string
+  data?: PlayerData
 }
 
-// ===== MAIN world 桥（序列化注入，必须自包含、不引用模块作用域） =====
-
-// 注意：此函数会被 toString() 序列化后注入 MAIN world 执行，
-// 必须完全自包含 —— 禁止引用任何模块作用域变量/常量/导入。
-// ===== 内容脚本侧：注入 + 请求客户端 =====
-
-let bridgeInjected = false
 let requestCounter = 0
-const pendingRequests = new Map<
-  string,
-  { resolve: (resp: BridgeResponse) => void; timer: number }
->()
-
-function ensureBridgeInjected(): void {
-  if (bridgeInjected) return
-  bridgeInjected = true
-
-  window.addEventListener('message', (event: MessageEvent) => {
-    if (event.source !== window) return
-    const data = event.data as BridgeResponse | null
-    if (!data || data.type !== RES_TYPE || typeof data.requestId !== 'string') return
-    const pending = pendingRequests.get(data.requestId)
-    if (!pending) return
-    pendingRequests.delete(data.requestId)
-    window.clearTimeout(pending.timer)
-    pending.resolve(data)
-  })
-
-
-}
-
-function sendBridgeRequest(
-  action: BridgeAction,
-  payload: Record<string, unknown>,
-  timeoutMs: number,
-): Promise<BridgeResponse | null> {
-  ensureBridgeInjected()
-  return new Promise((resolve) => {
-    const requestId = `tv-${Date.now()}-${++requestCounter}`
-    const timer = window.setTimeout(() => {
-      pendingRequests.delete(requestId)
-      resolve(null) // 桥未注入成功（如 CSP 拦截）或超时：走降级路径
-    }, timeoutMs)
-    pendingRequests.set(requestId, { resolve, timer })
-    window.postMessage({ type: REQ_TYPE, requestId, action, ...payload }, location.origin)
-  })
-}
-
-// ===== ytInitialPlayerResponse 降级（桥被 CSP 拦截时仍可读 DOM script 标签） =====
-
-function parseInitialPlayerResponse(videoId: string): PlayerData | null {
-  const scripts = document.querySelectorAll('script')
-  for (const script of Array.from(scripts)) {
-    const text = script.textContent
-    if (!text || !text.includes('ytInitialPlayerResponse') || !text.includes('captionTracks')) {
-      continue
+function requestPlayer(action: 'playerData' | 'ensureCc', videoId: string, signal?: AbortSignal): Promise<BridgeResponse | null> {
+  if (signal?.aborted) return Promise.resolve(null)
+  return new Promise(resolve => {
+    const requestId = 'tv-' + Date.now() + '-' + ++requestCounter
+    const finish = (response: BridgeResponse | null): void => {
+      window.clearTimeout(timer)
+      window.removeEventListener('message', onMessage)
+      signal?.removeEventListener('abort', onAbort)
+      resolve(response)
     }
-    const startIdx = text.indexOf('ytInitialPlayerResponse')
-    const braceStart = text.indexOf('{', startIdx)
-    if (braceStart === -1) continue
-    // 花括号配对提取 JSON
+    const onAbort = () => finish(null)
+    const onMessage = (event: MessageEvent<BridgeResponse>) => {
+      if (event.source !== window || event.origin !== location.origin) return
+      if (event.data?.type === 'tv-yt-bridge-response' && event.data.requestId === requestId) finish(event.data)
+    }
+    const timer = window.setTimeout(onAbort, BRIDGE_TIMEOUT_MS)
+    window.addEventListener('message', onMessage)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    window.postMessage({ type: 'tv-yt-bridge-request', requestId, action, videoId }, location.origin)
+  })
+}
+
+function initialPlayerData(videoId: string): PlayerData | null {
+  for (const script of document.scripts) {
+    const text = script.textContent ?? ''
+    const marker = /(?:var\s+)?ytInitialPlayerResponse\s*=\s*\{/.exec(text)
+    if (!marker || !text.includes('captionTracks')) continue
+    const start = marker.index + marker[0].length - 1
     let depth = 0
-    let end = -1
-    for (let i = braceStart; i < text.length; i++) {
+    let quoted = false
+    for (let i = start; i < text.length; i++) {
       const ch = text[i]
+      if (quoted && ch === '\\') {
+        i++
+        continue
+      }
+      if (ch === '"') quoted = !quoted
+      if (quoted) continue
       if (ch === '{') depth++
-      else if (ch === '}') {
-        depth--
-        if (depth === 0) {
-          end = i
-          break
+      if (ch === '}') depth--
+      if (depth !== 0) continue
+      try {
+        const data = JSON.parse(text.slice(start, i + 1))
+        if (data?.videoDetails?.videoId === videoId) {
+          const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+          if (Array.isArray(tracks)) {
+            return { videoId, captionTracks: tracks.filter(track => typeof track?.baseUrl === 'string') }
+          }
         }
+      } catch {
+        break
       }
-    }
-    if (end === -1) continue
-    try {
-      const data = JSON.parse(text.slice(braceStart, end + 1)) as {
-        videoDetails?: { videoId?: string }
-        captions?: {
-          playerCaptionsTracklistRenderer?: { captionTracks?: Array<Record<string, unknown>> }
-        }
-      }
-      if (data?.videoDetails?.videoId !== videoId) continue
-      const raw = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []
-      const captionTracks: CaptionTrack[] = raw
-        .filter((t) => typeof t?.baseUrl === 'string')
-        .map((t) => ({
-          baseUrl: t.baseUrl as string,
-          languageCode: typeof t.languageCode === 'string' ? t.languageCode : '',
-          ...(typeof t.kind === 'string' ? { kind: t.kind } : {}),
-          ...(typeof t.vssId === 'string' ? { vssId: t.vssId } : {}),
-        }))
-      return { videoId, captionTracks, cachedTimedtextUrl: null }
-    } catch {
-      continue
+      break
     }
   }
   return null
 }
 
-async function getPlayerData(videoId: string): Promise<PlayerData | null> {
-  const resp = await sendBridgeRequest('playerData', { videoId }, DEFAULT_TIMEOUT_MS)
-  if (resp?.ok && resp.videoId === videoId && Array.isArray(resp.captionTracks)) {
-    return {
-      videoId,
-      captionTracks: resp.captionTracks,
-      cachedTimedtextUrl: resp.cachedTimedtextUrl ?? null,
-    }
+const waitForPlayerPoll = () => new Promise(resolve => window.setTimeout(resolve, POLL_MS))
+
+async function waitForPlayerData(videoId: string, signal?: AbortSignal): Promise<PlayerData | null> {
+  const deadline = Date.now() + PLAYER_TIMEOUT_MS
+  do {
+    const response = await requestPlayer('playerData', videoId, signal)
+    signal?.throwIfAborted()
+    if (response?.ok && response.data?.videoId === videoId) return response.data
+    if (!response) break
+    await waitForPlayerPoll()
+  } while (Date.now() < deadline)
+  return initialPlayerData(videoId)
+}
+
+function pickTrack(data: PlayerData): CaptionTrack | undefined {
+  const { captionTracks, selectedTrack, defaultTrack } = data
+  const selectedById = selectedTrack?.vssId
+    ? captionTracks.find(track => track.vssId === selectedTrack.vssId) : undefined
+  const selectedByLanguage = selectedTrack?.languageCode
+    ? captionTracks.filter(track => track.languageCode === selectedTrack.languageCode) : []
+  return selectedById ??
+    selectedByLanguage.find(track => track.kind === selectedTrack?.kind) ??
+    selectedByLanguage[0] ??
+    defaultTrack ??
+    captionTracks.find(track => track.kind !== 'asr') ??
+    captionTracks[0]
+}
+
+function trackKey(track: CaptionTrack): string {
+  return [track.vssId, track.languageCode, track.kind, timedtextUrl(track.baseUrl)?.searchParams.get('name')].join('|')
+}
+
+export async function getYouTubeTrackKey(videoId: string, signal: AbortSignal): Promise<string | undefined> {
+  const response = await requestPlayer('playerData', videoId, signal)
+  if (!response?.ok || response.data?.videoId !== videoId) return undefined
+  const track = pickTrack(response.data)
+  return track ? trackKey(track) : undefined
+}
+
+function getCaptionUrls(track: CaptionTrack, data: PlayerData): URL[] {
+  const url = timedtextUrl(track.baseUrl, data.videoId)
+  if (!url) return []
+
+  // A proof token belongs to one video. Prefer the active audio track, then the native request.
+  const cached = data.cachedTimedtextUrl ? timedtextUrl(data.cachedTimedtextUrl, data.videoId) : null
+  const audioProofs = (data.audioCaptionTracks ?? []).flatMap(candidate => {
+    const proof = timedtextUrl(candidate.baseUrl, data.videoId)
+    return proof?.searchParams.get('pot') ? [{ candidate, proof }] : []
+  })
+  const proof = audioProofs.find(({ candidate }) => track.vssId && candidate.vssId === track.vssId)?.proof ??
+    audioProofs.find(({ candidate }) => candidate.languageCode === track.languageCode && candidate.kind === track.kind)?.proof ??
+    audioProofs.find(({ proof }) => proof.searchParams.get('v') === data.videoId)?.proof ??
+    cached
+
+  for (const [key, value] of Object.entries({
+    fmt: 'json3', xorb: '2', xobt: '3', xovt: '3', c: 'WEB', cplayer: 'UNIPLAYER',
+  })) {
+    url.searchParams.set(key, value)
   }
-  return parseInitialPlayerResponse(videoId)
+  const device = new URLSearchParams(data.device)
+  for (const key of DEVICE_PARAMS) {
+    const value = device.get(key)
+    if (value) url.searchParams.set(key, value)
+  }
+  if (data.clientVersion) url.searchParams.set('cver', data.clientVersion)
+  const pot = proof?.searchParams.get('pot')
+  if (pot) {
+    url.searchParams.set('pot', pot)
+    const potc = proof?.searchParams.get('potc')
+    if (potc) url.searchParams.set('potc', potc)
+    else url.searchParams.delete('potc')
+  }
+
+  // Replay the player's request only if it belongs to this exact source track.
+  if (cached && !cached.searchParams.has('tlang') && ['lang', 'kind', 'name'].every(key => cached.searchParams.get(key) === url.searchParams.get(key))) {
+    cached.searchParams.set('fmt', 'json3')
+    return [url, cached]
+  }
+  return [url]
 }
 
-// ===== 轨道选择 =====
-
-function pickTrack(tracks: CaptionTrack[]): CaptionTrack | null {
-  if (tracks.length === 0) return null
-  // 优先人工字幕（无 kind=asr），否则第一条
-  return tracks.find((t) => t.kind !== 'asr') ?? tracks[0] ?? null
-}
-
-// ===== timedtext 下载 =====
-
-async function fetchText(url: string): Promise<string | null> {
+async function fetchText(url: URL, signal?: AbortSignal): Promise<string | null> {
+  signal?.throwIfAborted()
   const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  const abort = () => controller.abort()
+  const timer = window.setTimeout(abort, FETCH_TIMEOUT_MS)
+  signal?.addEventListener('abort', abort, { once: true })
   try {
-    const resp = await fetch(url, { credentials: 'include', signal: controller.signal })
-    if (!resp.ok) return null
-    const text = await resp.text()
-    return text.trim() ? text : null
+    const response = await fetch(url, { credentials: 'include', cache: 'no-store', signal: controller.signal })
+    return response.ok ? await response.text() : null
   } catch {
+    signal?.throwIfAborted()
     return null
   } finally {
     window.clearTimeout(timer)
-  }
-}
-
-function forceJson3(url: string): string {
-  try {
-    const u = new URL(url)
-    u.searchParams.set('fmt', 'json3')
-    return u.toString()
-  } catch {
-    return url
+    signal?.removeEventListener('abort', abort)
   }
 }
 
@@ -193,21 +218,21 @@ interface TimedEvent {
   dDurationMs: number
   aAppend?: number
   wWinId?: number
-  segs: Array<{ utf8: string; tOffsetMs?: number }>
+  segs?: Array<{ utf8?: string; tOffsetMs?: number }>
 }
 
 function parseTimedText(text: string): TimedEvent[] | null {
   const trimmed = text.trim()
   if (!trimmed) return null
-  if (trimmed.startsWith('{')) return parseJson3(trimmed)
-  return parseXml(trimmed)
+  const events = trimmed.startsWith('{') ? parseJson3(trimmed) : parseXml(trimmed)
+  return events?.sort((a, b) => a.tStartMs - b.tStartMs) ?? null
 }
 
 function parseJson3(text: string): TimedEvent[] | null {
   try {
     const data = JSON.parse(text) as { events?: TimedEvent[] }
     if (!Array.isArray(data.events)) return null
-    return data.events.filter((e) => e && Number.isFinite(e.tStartMs))
+    return data.events.filter(e => e && Number.isFinite(e.tStartMs) && Array.isArray(e.segs))
   } catch {
     return null
   }
@@ -219,15 +244,17 @@ function parseXml(text: string): TimedEvent[] | null {
     if (xml.querySelector('parsererror')) return null
     // srv1: transcript > text[start(秒) dur(秒)]；srv3: timedtext > body > p[t(ms) d(ms)]
     const nodes = Array.from(xml.querySelectorAll('transcript > text, timedtext > body > p'))
-    const events: TimedEvent[] = nodes.map((node) => {
+    const events: TimedEvent[] = nodes.flatMap((node) => {
       const srv3 = node.tagName === 'p'
-      const start = Number(node.getAttribute(srv3 ? 't' : 'start')) * (srv3 ? 1 : 1000)
+      const rawStart = node.getAttribute(srv3 ? 't' : 'start')
+      const start = Number(rawStart) * (srv3 ? 1 : 1000)
       const dur = Number(node.getAttribute(srv3 ? 'd' : 'dur')) * (srv3 ? 1 : 1000)
-      return {
-        tStartMs: Number.isFinite(start) ? start : 0,
+      if (rawStart === null || !Number.isFinite(start)) return []
+      return [{
+        tStartMs: start,
         dDurationMs: Number.isFinite(dur) ? dur : 0,
         segs: [{ utf8: node.textContent ?? '' }],
-      }
+      }]
     })
     return events.length ? events : null
   } catch {
@@ -246,27 +273,37 @@ function cleanText(s: string): string {
 }
 
 function isScrollingAsr(events: TimedEvent[]): boolean {
-  return events.some((e) => e.wWinId !== undefined || e.aAppend === 1)
+  return events.some(e => e.wWinId !== undefined && e.aAppend === 1)
+}
+
+function appendCue(cues: SubtitleCue[], cue: SubtitleCue): void {
+  const last = cues.at(-1)
+  if (last?.start === cue.start) {
+    if (last.text !== cue.text) last.text += '\n' + cue.text
+    last.end = Math.max(last.end, cue.end)
+    return
+  }
+  if (last && last.end > cue.start) last.end = cue.start
+  cues.push(cue)
 }
 
 /** 标准轨：一个事件一条 cue */
 function eventsToCuesStandard(events: TimedEvent[]): SubtitleCue[] {
   const cues: SubtitleCue[] = []
   for (const e of events) {
-    const text = cleanText((e.segs ?? []).map((s) => s.utf8).join(''))
+    const text = cleanText((e.segs ?? []).map(s => s?.utf8 ?? '').join(''))
     if (!text) continue
     const start = e.tStartMs / 1000
-    const end = (e.tStartMs + (e.dDurationMs || 2000)) / 1000
-    const last = cues[cues.length - 1]
-    if (last && last.end > start) last.end = start // 防重叠
-    cues.push({ start, end, text })
+    const duration = Number.isFinite(e.dDurationMs) && e.dDurationMs > 0 ? e.dDurationMs : 2000
+    appendCue(cues, { start, end: (e.tStartMs + duration) / 1000, text })
   }
   return cues
 }
 
 /** 滚动 ASR：跨事件累积词片段，按句末标点/长度/时间间隙断句 */
-function eventsToCuesAsr(events: TimedEvent[]): SubtitleCue[] {
+function eventsToCuesAsr(events: TimedEvent[], language: string): SubtitleCue[] {
   const cues: SubtitleCue[] = []
+  const usesSpaces = !/^(zh|ja|th)(-|$)/i.test(language)
   let buf = ''
   let bufStart = 0
   let bufEnd = 0
@@ -276,30 +313,25 @@ function eventsToCuesAsr(events: TimedEvent[]): SubtitleCue[] {
     const text = cleanText(buf)
     if (text) {
       const start = bufStart / 1000
-      let end = bufEnd / 1000
-      if (end <= start) end = start + 2
-      const last = cues[cues.length - 1]
-      if (last && last.end > start) last.end = start
-      cues.push({ start, end, text })
+      cues.push({ start, end: Math.max(start + 0.2, bufEnd / 1000), text })
     }
     buf = ''
+    bufEnd = 0
     pendingSplit = false
   }
 
-  let prevEventEnd = 0
   for (const e of events) {
-    // aAppend=1 是滚动窗口的分隔事件：只用于触发断句与校准结束时间
-    if (e.aAppend === 1) {
+    if (!e.segs?.length) continue
+    // 只有空白的滚动事件是分隔符。带文字的追加事件仍是字幕。
+    if (e.aAppend === 1 && e.segs.every(seg => !seg?.utf8?.trim())) {
       if (buf) {
         bufEnd = Math.max(bufEnd, e.tStartMs + (e.dDurationMs || 0))
         if (pendingSplit) flush()
       }
       continue
     }
-    if (!e.segs || e.segs.length === 0) continue
-
-    // 大间隙且已积满一句 → 先落盘
-    if (buf && pendingSplit && e.tStartMs - prevEventEnd > ASR_GAP_MS) flush()
+    if (buf && e.tStartMs - bufEnd > ASR_GAP_MS) flush()
+    if (usesSpaces && buf && !pendingSplit && !/\s$/.test(buf) && /^\S/.test(e.segs[0]?.utf8 ?? '')) buf += ' '
 
     for (let i = 0; i < e.segs.length; i++) {
       const seg = e.segs[i]
@@ -319,60 +351,57 @@ function eventsToCuesAsr(events: TimedEvent[]): SubtitleCue[] {
         pendingSplit = true
       }
     }
-    prevEventEnd = e.tStartMs + (e.dDurationMs || 0)
-    if (buf && pendingSplit) flush()
   }
   flush()
-  return cues
+  const ordered: SubtitleCue[] = []
+  for (const cue of cues.sort((a, b) => a.start - b.start)) appendCue(ordered, cue)
+  return ordered
 }
 
-// ===== 对外主入口 =====
+/** Read the active CC track. A missing track is distinct from a failed fetch. */
+export async function fetchYouTubeCues(videoId: string, signal?: AbortSignal): Promise<YouTubeCaptions | null> {
+  const player = await waitForPlayerData(videoId, signal)
+  if (!player) throw new Error('YouTube player data unavailable')
+  if (!player.captionTracks.length) return null
 
-/**
- * 拉取指定视频的字幕轨并解析为 SubtitleCue[]。
- * 无字幕轨 / 全部路径失败时返回 null（调用方静默退出）。
- */
-export async function fetchYouTubeCues(videoId: string): Promise<SubtitleCue[] | null> {
-  const playerData = await getPlayerData(videoId)
-  if (!playerData || playerData.captionTracks.length === 0) return null
-
-  const track = pickTrack(playerData.captionTracks)
-  if (!track) return null
-
-  // 播放器已捕获的授权地址可直接复用，避免先等待失效的原始地址。
-  const directUrl = forceJson3(track.baseUrl)
-  const urls = new Set([playerData.cachedTimedtextUrl, directUrl].filter((url): url is string => Boolean(url)).map(forceJson3))
-  for (const url of urls) {
-    const text = await fetchText(url)
-    const cues = text ? tryParse(text, track) : null
-    if (cues && cues.length > 0) return cues
+  const tried = new Map<string, { count: number; time: number }>()
+  async function tryPlayerData(data: PlayerData): Promise<YouTubeCaptions | null> {
+    const track = pickTrack(data)
+    if (!track) return null
+    for (const url of getCaptionUrls(track, data)) {
+      const attempt = tried.get(url.href)
+      const time = Date.now()
+      if (attempt && (!url.searchParams.has('pot') || attempt.count >= 2 || time - attempt.time < RETRY_MS)) continue
+      tried.set(url.href, { count: (attempt?.count ?? 0) + 1, time })
+      const body = await fetchText(url, signal)
+      const events = body && parseTimedText(body)
+      if (!events) continue
+      const scrolling = track.kind === 'asr' && isScrollingAsr(events)
+      const cues = scrolling ? eventsToCuesAsr(events, track.languageCode) : eventsToCuesStandard(events)
+      if (cues.length) return { cues, trackKey: trackKey(track) }
+    }
+    return null
   }
 
-  // 降级 1：MAIN world 已捕获的带 pot 的 timedtext URL
-  let potUrl = playerData.cachedTimedtextUrl
+  const fast = await tryPlayerData(player)
+  if (fast) return fast
 
-  // 降级 2：让播放器打开 CC 触发一次字幕请求，然后等捕获
-  if (!potUrl) {
-    void sendBridgeRequest('ensureCc', {}, DEFAULT_TIMEOUT_MS)
-    const resp = await sendBridgeRequest(
-      'waitTimedtext',
-      { videoId, timeoutMs: WAIT_TIMEDTEXT_TIMEOUT_MS },
-      WAIT_TIMEDTEXT_TIMEOUT_MS + 1000,
-    )
-    potUrl = resp?.url ?? null
+  // An unsigned timedtext request can return HTTP 200 with an empty body.
+  // Ask the actual watch player to start CC, then read the fresh audio track or intercepted URL.
+  const activated = await requestPlayer('ensureCc', videoId, signal)
+  signal?.throwIfAborted()
+  if (activated?.ok) {
+    const deadline = Date.now() + PROOF_WAIT_MS
+    do {
+      const response = await requestPlayer('playerData', videoId, signal)
+      signal?.throwIfAborted()
+      if (!response) break
+      if (response.ok && response.data?.videoId === videoId) {
+        const result = await tryPlayerData(response.data)
+        if (result) return result
+      }
+      await waitForPlayerPoll()
+    } while (Date.now() < deadline)
   }
-
-  if (!potUrl) return null
-  if (urls.has(forceJson3(potUrl))) return null
-  const text = await fetchText(forceJson3(potUrl))
-  const cues = text ? tryParse(text, track) : null
-  return cues && cues.length > 0 ? cues : null
-}
-
-function tryParse(text: string, track: CaptionTrack): SubtitleCue[] | null {
-  const events = parseTimedText(text)
-  if (!events) return null
-  const asr = track.kind === 'asr' || isScrollingAsr(events)
-  const cues = asr ? eventsToCuesAsr(events) : eventsToCuesStandard(events)
-  return cues.length > 0 ? cues : null
+  throw new Error('YouTube captions could not be loaded')
 }

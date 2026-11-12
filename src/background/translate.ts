@@ -35,6 +35,7 @@ export interface TranslateOptions {
   bypassCache?: boolean
   exactProvider?: boolean
   immediate?: boolean
+  scope?: 'youtube'
   targetLang: string
   sourceLang?: string
   /** 页面摘要上下文（content 侧 getPageContext 提取）：仅 AI 引擎注入 system prompt */
@@ -258,12 +259,11 @@ async function routePrepared(
   config: Config,
   terms: GlossaryTerm[],
   ctxSig?: string,
-  exactProvider = false,
-  immediate = false,
+  options: Pick<TranslateOptions, 'exactProvider' | 'immediate' | 'scope'> = {},
 ): Promise<EngineResult> {
   const ctx: EngineContext = { config }
   const engine = resolveEngine(config.engine.provider, ctx)
-  if (engine.kind === 'free' && exactProvider) {
+  if (engine.kind === 'free' && options.exactProvider) {
     return withTimeout(signal => engine.translate(prepared, from, to, ctx, signal), config.engine.timeoutMs)
   }
   if (engine.kind === 'free') {
@@ -273,6 +273,7 @@ async function routePrepared(
   if (engine.supportsBatch && config.batch.enabled) {
     // 队列 key 带术语表签名 + 上下文签名：system prompt 内容不同批不可混排
     const queueKey =
+      (options.scope === 'youtube' ? 'youtube|' : '') +
       `${engine.id}|${from}|${to}|${textHash(sigOf(terms))}` +
       (ctxSig ? `|${textHash(ctxSig)}` : '')
     const queue = getBatchQueue(
@@ -290,7 +291,7 @@ async function routePrepared(
         configuration: engine.id === 'foxmori' ? JSON.stringify([config.engine.keys.foxmori, config.engine.foxmori.model]) : undefined,
       },
     )
-    const text = await queue.addTask(prepared, immediate)
+    const text = await queue.addTask(prepared, options.immediate)
     return { text }
   }
   return withTimeout((signal) => engine.translate(prepared, from, to, ctx, signal), config.engine.timeoutMs)
@@ -317,7 +318,7 @@ export async function translate(
 
   const prep = prepare(text, config, terms)
   const effConfig = context ? withPageContext(config, context) : config
-  const routed = await routePrepared(prep.text, from, to, effConfig, terms, context, opts.exactProvider, opts.immediate)
+  const routed = await routePrepared(prep.text, from, to, effConfig, terms, context, opts)
   const restored = restorePrepared(prep, routed.text)
   await cacheSet(key, restored)
   return { text: restored, detectedLang: routed.detectedLang }

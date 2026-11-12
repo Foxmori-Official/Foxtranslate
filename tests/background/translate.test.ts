@@ -314,6 +314,26 @@ describe('当前字幕的优先调度', () => {
     expect(vi.mocked(ENGINES.openai.translateBatch!).mock.calls[1][0]).toEqual(['future caption'])
   })
 
+  it('网页翻译占满队列时，当前视频字幕仍能提交', async () => {
+    const config = makeConfig({ provider: 'openai', batch: true })
+    config.batch.concurrency = 1
+    config.batch.maxTexts = 1
+    let releasePageBatch!: (texts: string[]) => void
+    const send = vi.mocked(ENGINES.openai.translateBatch!)
+    send.mockImplementationOnce(() => new Promise(resolve => { releasePageBatch = resolve }))
+    const page = translate('page paragraph', { targetLang: 'zh-CN' }, config)
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+
+    try {
+      const cue = translate('current caption', { targetLang: 'zh-CN', immediate: true, scope: 'youtube' }, config)
+      await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+      expect((await cue).text).toBe('[openai:batch]current caption')
+    } finally {
+      releasePageBatch(['translated paragraph'])
+      await page
+    }
+  })
+
   it('当前句优先于尚未发送的预取，沿用相同的并发上限', async () => {
     let releaseFirst: (value: string[]) => void = () => {}
     const send = vi.fn(async (texts: string[]) => texts)

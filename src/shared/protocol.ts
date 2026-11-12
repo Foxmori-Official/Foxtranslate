@@ -2,7 +2,7 @@ import type { Config, SubtitlePatch } from './config'
 
 // ===== content / popup → background =====
 export type BgRequest =
-  | { kind: 'translate'; text: string; targetLang: string; sourceLang?: string; context?: string; immediate?: boolean }
+  | { kind: 'translate'; text: string; targetLang: string; sourceLang?: string; context?: string; immediate?: boolean; scope?: 'youtube' }
   | { kind: 'translateBatch'; texts: string[]; targetLang: string; sourceLang?: string }
   | { kind: 'detectLang'; text: string }
   | { kind: 'aiAssist'; action: AiAssistAction; text: string; targetLang: string; context?: string }
