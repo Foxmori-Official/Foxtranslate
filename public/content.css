@@ -169,43 +169,75 @@ tv-translation.tv-tr-replace {
 .tv-sel-popup {
   position: absolute;
   z-index: var(--tv-z-index);
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
-  max-width: min(380px, calc(100vw - 12px));
-  min-width: min(220px, calc(100vw - 12px));
+  width: min(380px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
   background: var(--tv-card);
   color: var(--tv-text);
   border: 1px solid rgba(41, 61, 51, 0.08);
   border-radius: 12px;
   box-shadow: 0 10px 32px rgba(41, 61, 51, 0.14); /* = --tv-shadow-lg */
   font: 13px/1.65 var(--tv-font);
-  padding: 12px;
+  overflow: hidden;
   animation: tv-pop 0.12s ease;
 }
 @keyframes tv-pop {
   from { opacity: 0; transform: translateY(4px); }
 }
+.tv-sel-head,
+.tv-sel-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+.tv-sel-head { border-bottom: 1px solid var(--tv-border); }
+.tv-sel-title { margin-inline-end: auto; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.tv-sel-select {
+  min-width: 0;
+  min-height: 28px;
+  box-sizing: border-box;
+  appearance: auto;
+  color-scheme: light;
+  border: 1px solid var(--tv-border-strong);
+  border-radius: var(--tv-radius-md);
+  background: var(--tv-card);
+  color: var(--tv-text);
+  padding: 3px 6px;
+  font: 12px/1.4 var(--tv-font);
+  cursor: pointer;
+}
+.tv-sel-target { max-width: 54%; }
+.tv-sel-engine { max-width: min(192px, 100%); margin-inline-end: auto; }
+.tv-sel-body {
+  min-height: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.tv-sel-source-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .tv-sel-source {
   color: var(--tv-text-sub);
   font-size: 12px;
   min-width: 0;
   word-break: break-word;
 }
-.tv-sel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
 .tv-sel-utilities { display: flex; gap: 2px; flex: none; }
+.tv-sel-head > .tv-sel-icon,
 .tv-sel-utilities > .tv-sel-icon { width: 27px; height: 27px; padding: 4px; }
 .tv-sel-icon > svg { width: 16px; height: 16px; pointer-events: none; }
 .tv-sel-translation {
+  margin-top: 6px;
   color: var(--tv-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .tv-sel-actions {
-  display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(41, 61, 51, 0.06);
+  border-top: 1px solid var(--tv-border);
 }
 .tv-sel-btn {
   display: inline-flex;
@@ -226,7 +258,8 @@ tv-translation.tv-tr-replace {
   cursor: pointer;
 }
 .tv-sel-btn:hover { background: rgba(41, 61, 51, 0.06); color: var(--tv-text); }
-.tv-sel-btn:focus-visible {
+.tv-sel-btn:focus-visible,
+.tv-sel-select:focus-visible {
   outline: none;
   box-shadow: var(--tv-focus-ring);
 }

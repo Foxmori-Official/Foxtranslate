@@ -31,12 +31,22 @@ try {
     const realFetch = globalThis.fetch
     globalThis.fetch = async (url, init) => {
       if (String(url).startsWith('https://translate.googleapis.com/')) {
-        const text = new URL(String(url)).searchParams.get('q') || new URLSearchParams(init?.body).get('q') || 'Hello'
+        const params = new URL(String(url)).searchParams
+        const text = params.get('q') || new URLSearchParams(init?.body).get('q') || 'Hello'
         if (text.startsWith('Prefetch fixture ') && globalThis.captionPrefetchGate) {
           globalThis.markCaptionPrefetchStarted()
           await globalThis.captionPrefetchGate
         }
-        return Response.json([[['译文 · ' + text, text]], null, 'en'])
+        const target = params.get('tl')
+        const translated = text.startsWith('This paragraph') && ['ja', 'fr'].includes(target)
+          ? 'Google · ' + target + ' · ' + text : '译文 · ' + text
+        return Response.json([[[translated, text]], null, 'en'])
+      }
+      if (String(url).startsWith('https://api.mymemory.translated.net/get?')) {
+        const { searchParams } = new URL(String(url))
+        if (searchParams.get('langpair') === 'en|fr') return new Response(null, { status: 503 })
+        const translatedText = ('MyMemory · ' + searchParams.get('langpair') + ' · ' + searchParams.get('q') + '\n').repeat(12)
+        return Response.json({ responseStatus: 200, responseData: { translatedText } })
       }
       if (String(url) === 'https://api.foxmori.com/v1/models') {
         if (new Headers(init?.headers).get('authorization') !== 'Bearer sk-fixture-foxmori') return Response.json({}, { status: 401 })
@@ -131,6 +141,7 @@ try {
   await capture(guide, 'foxtranslate-onboarding-complete')
 
   // A real host page activates the normal content script and background pipeline.
+  await config({ general: { ...stored['tv:config_v1'].general, targetLang: 'zh-CN' } })
   const content = await browser.newPage()
   await content.goto(address)
   await content.waitForFunction(() => {
@@ -169,9 +180,40 @@ try {
   })
   const bubble = content.locator('.tv-sel-popup')
   await bubble.getByRole('button', { name: '朗读', exact: true }).waitFor()
-  assert.equal(await bubble.locator('.tv-sel-utilities .tv-sel-icon').count(), 3)
+  assert.equal(await bubble.locator('.tv-sel-icon').count(), 3)
   await bubble.locator('.tv-sel-primary').filter({ hasText: '收藏' }).waitFor()
   assert.equal(await bubble.getByRole('button', { name: /写作/ }).count(), 0)
+  const selectionTarget = bubble.getByRole('combobox', { name: '目标语言' })
+  const selectionEngine = bubble.getByRole('combobox', { name: '翻译引擎' })
+  const selectionResult = bubble.locator('.tv-sel-translation')
+  assert.equal(await selectionTarget.inputValue(), 'zh-CN')
+  assert.match(await selectionEngine.locator('option:checked').textContent(), /默认.*谷歌/)
+  assert.equal(await selectionEngine.locator('option[value="foxmori"]').count(), 0)
+  await selectionTarget.focus()
+  await selectionTarget.press('Tab')
+  assert.ok(await bubble.getByRole('button', { name: '关闭', exact: true }).evaluate(node => node === document.activeElement))
+  await selectionTarget.selectOption('ja')
+  await selectionResult.filter({ hasText: 'Google · ja · This paragraph' }).waitFor()
+  await selectionEngine.selectOption('mymemory')
+  await selectionResult.filter({ hasText: 'MyMemory · en|ja · This paragraph' }).waitFor()
+  const readingViewport = content.viewportSize()
+  await content.setViewportSize({ width: 320, height: 360 })
+  await content.waitForFunction(() => {
+    const card = document.querySelector('.tv-sel-popup')
+    const box = card.getBoundingClientRect()
+    const body = card.querySelector('.tv-sel-body')
+    return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight &&
+      body.scrollHeight > body.clientHeight
+  })
+  await capture(content, 'foxtranslate-selection-controls')
+  await content.setViewportSize(readingViewport)
+  await selectionTarget.selectOption('fr')
+  await selectionResult.filter({ hasText: '翻译失败：mymemory: HTTP 503' }).waitFor()
+  await selectionEngine.selectOption('')
+  await selectionResult.filter({ hasText: 'Google · fr · This paragraph' }).waitFor()
+  const readingDefaults = await config({})
+  assert.equal(readingDefaults.engine.provider, 'google')
+  assert.equal(readingDefaults.general.targetLang, 'zh-CN')
   await bubble.getByRole('button', { name: '关闭', exact: true }).click()
 
   // Popup still uses the actual active ordinary page.
@@ -425,6 +467,25 @@ try {
   await provider.getByText('当前使用 谷歌（免费）', { exact: true }).waitFor()
   await services.selectOption('foxmori')
   assert.equal((await config({})).engine.provider, 'google')
+  const withSelectionEngines = await config({})
+  await config({ engine: {
+    ...withSelectionEngines.engine,
+    customEngines: [{
+      id: 'selection-fixture', name: '自定义测试引擎', endpoint: 'https://api.foxmori.com/v1',
+      apiKey: 'sk-fixture-foxmori', model: 'fixture-translate', headersJson: '{}',
+    }],
+  } })
+  await content.bringToFront()
+  await content.evaluate(() => {
+    getSelection().removeAllRanges()
+    getSelection().selectAllChildren(document.getElementById('paragraph'))
+  })
+  await selectionEngine.selectOption('foxmori')
+  await selectionResult.filter({ hasText: /^你好 · Foxmori 测试$/ }).waitFor()
+  await selectionEngine.selectOption('custom:selection-fixture')
+  await selectionResult.filter({ hasText: /^你好 · Foxmori 测试$/ }).waitFor()
+  assert.equal((await config({})).engine.provider, 'google')
+  await bubble.getByRole('button', { name: '关闭', exact: true }).click()
   await provider.setViewportSize({ width: 1440, height: 900 })
   await provider.getByRole('button', { name: '设为当前引擎', exact: true }).click()
   await provider.locator('[data-engine-id="foxmori"] .engine-current').waitFor()
@@ -733,7 +794,7 @@ try {
       await capture(live, 'foxtranslate-youtube-live-unavailable')
     }
   }
-  console.log('PASS · setup languages, workspace navigation, Foxmori account, AI analysis, page translation, document export, vocabulary review, YouTube CC/track changes/seek priority, menu/styles/SRT/shortcuts, CSP bridge and SPA')
+  console.log('PASS · setup languages, workspace navigation, Foxmori account, selection languages/free/AI/custom engines/keyboard, AI analysis, page translation, document export, vocabulary review, YouTube CC/track changes/seek priority, menu/styles/SRT/shortcuts, CSP bridge and SPA')
 } finally {
   await browser?.close()
   await new Promise(done => fixture.close(done))

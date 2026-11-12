@@ -46,6 +46,8 @@ const EXPECTED_KEYS = [
   "lang.commonGroup",
   "lang.allGroup",
   "brand.settings",
+  "sel.title",
+  "sel.defaultEngine",
   "sel.ai",
   "sel.save",
   "sel.speak",

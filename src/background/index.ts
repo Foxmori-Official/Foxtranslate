@@ -6,7 +6,7 @@ import { mergeSubtitlePreferences } from '../shared/config'
 import { translate, translateTexts, detectLang, aiAssist, aiChat } from './translate'
 import { compareTranslate } from './compare'
 import { extractTermsWithAI } from './glossaryLibs'
-import { syncCustomEngines } from './engines'
+import { ENGINES, syncCustomEngines } from './engines'
 import { getConfig, setConfig, updateConfig, incrementTranslatedChars, getWords, addWord, deleteWord, updateWord, toFsrsCard, toWordCard, watchConfig } from '../shared/store'
 import { ok, err, type BgRequest, type BgResponse, type StatsResult, type TestEngineResult, type WordItem } from '../shared/protocol'
 
@@ -36,8 +36,14 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       assertExtensionPage(sender)
       return fetchProviderModels(config, msg.provider)
     case 'translate': {
-      const { targetLang, sourceLang, context, immediate, scope } = msg
-      const result = await translate(msg.text, { targetLang, sourceLang, context, immediate, scope }, config)
+      const { targetLang, sourceLang, context, immediate, scope, provider } = msg
+      if (provider !== undefined && (typeof provider !== 'string' || !Object.hasOwn(ENGINES, provider))) {
+        throw new Error('The selected translation engine is unavailable.')
+      }
+      const requestConfig = provider === undefined ? config : { ...config, engine: { ...config.engine, provider } }
+      const result = await translate(msg.text, {
+        targetLang, sourceLang, context, immediate, scope, exactProvider: provider !== undefined,
+      }, requestConfig)
       await incrementTranslatedChars(msg.text.length)
       return result
     }

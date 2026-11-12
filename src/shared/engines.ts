@@ -5,8 +5,32 @@
  */
 import { t } from './i18n'
 import type { UiLangCode } from './i18n'
+import type { Config } from './config'
 
 export const FREE_ENGINE_IDS: readonly string[] = ['google', 'bing', 'mymemory']
+
+const BYOK_HINT: Record<string, string> = {
+  deepl: 'deepl: missing API key. Open the Foxtranslate options page to set it.',
+  openai: 'openai: missing API key. Open the Foxtranslate options page and fill in the OpenAI-compatible key field.',
+  deepseek: 'deepseek: missing API key (shared with the OpenAI-compatible key field). Open the Foxtranslate options page to set it.',
+  claude: 'claude: missing API key. Open the Foxtranslate options page to set it.',
+  gemini: 'gemini: missing API key. Open the Foxtranslate options page to set it.',
+  foxmori: 'foxmori: missing API key. Open the Foxtranslate options page to set it.',
+  custom: 'custom: missing endpoint URL. Open the Foxtranslate options page to configure it.',
+}
+
+/** Required local settings for a built-in engine. The background still validates connectivity and permissions. */
+export function builtinEngineSetupError(id: string, { keys, foxmori, custom }: Config['engine']): string | undefined {
+  if (id === 'deepl' && !keys.deepl) return BYOK_HINT.deepl
+  if ((id === 'openai' || id === 'deepseek') && !keys.openai) return BYOK_HINT[id]
+  if (id === 'claude' && !keys.claude) return BYOK_HINT.claude
+  if (id === 'gemini' && !keys.gemini) return BYOK_HINT.gemini
+  if (id === 'foxmori') {
+    if (!keys.foxmori.trim()) return BYOK_HINT.foxmori
+    if (!foxmori.model.trim()) return 'Foxmori: choose a model on the options page.'
+  }
+  if (id === 'custom' && !custom.url.trim()) return BYOK_HINT.custom
+}
 
 /** These providers use the AI translation prompts, including the selected expert. */
 export function isAiProvider(provider: string): boolean {

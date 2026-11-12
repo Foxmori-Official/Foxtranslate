@@ -1,13 +1,15 @@
 // 划词翻译：选区气泡（翻译 / AI 解析 / 收藏生词 / 朗读 / 复制）。
-import type { Config } from '../shared/config'
+import { DEFAULT_CONFIG, type Config } from '../shared/config'
 import { ct } from './uiLang'
 import { fmt } from '../shared/i18n'
-import type { AiAssistAction, AiChatMessage, BgResponse, TranslateResult } from '../shared/protocol'
-import { langName } from '../core/langs'
+import type { AiAssistAction, AiChatMessage, BgRequest, BgResponse, TranslateResult } from '../shared/protocol'
+import { COMMON_LANG_CODES, LANGS, langName, langNative } from '../core/langs'
+import { BUILTIN_ENGINES, builtinEngineSetupError } from '../shared/engines'
 import { outlineIcon } from '../shared/ui/icon'
 import { TtsPlayer } from './tts'
 
 let popup: HTMLElement | null = null
+let popupSize: ResizeObserver | null = null
 let hideTimer: ReturnType<typeof setTimeout> | null = null
 let currentConfig: Config | null = null
 
@@ -28,8 +30,9 @@ export function setSelectionConfig(config: Config) {
   currentConfig = config
 }
 
-async function bg<T>(msg: unknown): Promise<T> {
-  const resp = (await chrome.runtime.sendMessage(msg)) as BgResponse<T>
+async function bg<T>(msg: BgRequest): Promise<T> {
+  const resp = (await chrome.runtime.sendMessage(msg)) as BgResponse<T> | undefined
+  if (!resp) throw new Error(ct('pop.s1', '翻译服务未响应'))
   if (!resp.ok) throw new Error(resp.error)
   return resp.data
 }
@@ -45,6 +48,10 @@ function toast(text: string) {
 }
 
 function removePopup() {
+  if (hideTimer) clearTimeout(hideTimer)
+  hideTimer = null
+  popupSize?.disconnect()
+  popupSize = null
   popup?.remove()
   popup = null
 }
@@ -93,39 +100,118 @@ function toggleSpeak(text: string, config: Config): void {
   }
 }
 
+function buildTargetPicker(targetLang: string): HTMLSelectElement {
+  const select = document.createElement('select')
+  select.className = 'tv-sel-select tv-sel-target'
+  select.setAttribute('aria-label', ct('popup.targetLang', '目标语言'))
+
+  const common = document.createElement('optgroup')
+  common.label = ct('lang.commonGroup', '常用语言')
+  const other = document.createElement('optgroup')
+  other.label = ct('lang.allGroup', '全部语言')
+  for (const { code } of LANGS) {
+    if (code === 'auto') continue
+    const group = COMMON_LANG_CODES.includes(code) ? common : other
+    group.append(new Option(langNative(code), code))
+  }
+  select.append(common, other)
+  const initial = targetLang && targetLang !== 'auto' ? targetLang : DEFAULT_CONFIG.general.targetLang
+  select.value = initial
+  if (!select.value) {
+    other.append(new Option(langNative(initial), initial))
+    select.value = initial
+  }
+  return select
+}
+
+function providerName(id: string, engine: Config['engine']): string {
+  const builtin = BUILTIN_ENGINES.find(item => item.id === id)
+  if (builtin) return ct(builtin.nameKey, builtin.zh)
+  if (id === 'custom') return ct('cmp.engine.custom', '自定义')
+  return engine.customEngines.find(item => `custom:${item.id}` === id)?.name || id
+}
+
+function buildEnginePicker(engine: Config['engine']): HTMLSelectElement {
+  const select = document.createElement('select')
+  select.className = 'tv-sel-select tv-sel-engine'
+  select.setAttribute('aria-label', ct('popup.engine', '翻译引擎'))
+  select.add(new Option('', ''))
+  for (const builtin of BUILTIN_ENGINES) {
+    if (!builtinEngineSetupError(builtin.id, engine)) {
+      select.add(new Option(ct(builtin.nameKey, builtin.zh), builtin.id))
+    }
+  }
+  if (!builtinEngineSetupError('custom', engine)) {
+    select.add(new Option(providerName('custom', engine), 'custom'))
+  }
+  for (const entry of engine.customEngines) {
+    if (entry.id && entry.endpoint && entry.apiKey) {
+      select.add(new Option(entry.name || entry.id, `custom:${entry.id}`))
+    }
+  }
+  return select
+}
+
+function positionPopup(card: HTMLElement, rect: DOMRect): void {
+  const margin = 8
+  const width = card.offsetWidth
+  const height = card.offsetHeight
+  const below = window.innerHeight - rect.bottom
+  const top = height + margin <= below || below >= rect.top
+    ? rect.bottom + margin
+    : rect.top - height - margin
+  card.style.top = `${window.scrollY + Math.max(margin, Math.min(top, window.innerHeight - height - margin))}px`
+  card.style.left = `${window.scrollX + Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))}px`
+}
+
 function buildPopup(text: string, rect: DOMRect) {
   removePopup()
   const config = currentConfig!
-  popup = document.createElement('div')
-  popup.className = 'tv-sel-popup'
-  popup.setAttribute('data-tv-owned', '1')
-  popup.setAttribute('translate', 'no')
+  const pageContext = contextAroundSelection(text)
+  const card = document.createElement('div')
+  popup = card
+  card.className = 'tv-sel-popup'
+  card.setAttribute('data-tv-owned', '1')
+  card.setAttribute('translate', 'no')
+  card.setAttribute('role', 'dialog')
+  const title = document.createElement('span')
+  title.className = 'tv-sel-title'
+  title.textContent = ct('sel.title', '翻译')
+  card.setAttribute('aria-label', title.textContent)
 
+  const header = document.createElement('div')
+  header.className = 'tv-sel-head'
+  const target = buildTargetPicker(config.general.targetLang)
+  header.append(title, target)
+
+  const body = document.createElement('div')
+  body.className = 'tv-sel-body'
+  const sourceRow = document.createElement('div')
+  sourceRow.className = 'tv-sel-source-row'
   const source = document.createElement('div')
   source.className = 'tv-sel-source'
   source.textContent = text.length > 120 ? text.slice(0, 120) + '…' : text
-  const header = document.createElement('div')
-  header.className = 'tv-sel-head'
   const utilities = document.createElement('div')
   utilities.className = 'tv-sel-utilities'
-  header.append(source, utilities)
-  popup.append(header)
+  sourceRow.append(source, utilities)
 
   const translation = document.createElement('div')
   translation.className = 'tv-sel-translation'
-  translation.textContent = ct('sel.translating', '翻译中…')
-  popup.appendChild(translation)
-
-  const actions = document.createElement('div')
-  actions.className = 'tv-sel-actions'
-  popup.appendChild(actions)
+  translation.setAttribute('role', 'status')
 
   const aiBox = document.createElement('div')
   aiBox.className = 'tv-sel-ai'
   aiBox.style.display = 'none'
-  popup!.appendChild(aiBox)
+  body.append(sourceRow, translation, aiBox)
 
-  const addBtn = (label: string, onClick: () => void, style: 'primary' | 'secondary' | 'icon', path = '') => {
+  const actions = document.createElement('div')
+  actions.className = 'tv-sel-actions'
+  const engine = buildEnginePicker(config.engine)
+  actions.append(engine)
+  card.append(header, body, actions)
+  card.addEventListener('click', event => event.stopPropagation())
+
+  const addBtn = (container: HTMLElement, label: string, onClick: () => void, style: 'primary' | 'secondary' | 'icon', path = '') => {
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'tv-sel-btn tv-sel-' + style
@@ -135,17 +221,34 @@ function buildPopup(text: string, rect: DOMRect) {
       e.stopPropagation()
       onClick()
     })
-    const container = style === 'icon' ? utilities : actions
     container.append(b)
     return b
   }
 
-  // 自动翻译
-  bg<TranslateResult>({ kind: 'translate', text, targetLang: config.general.targetLang })
-    .then(result => { translation.textContent = result.text })
-    .catch((err: Error) => {
-      translation.textContent = ct('sel.translateFailed', '翻译失败：') + err.message
+  let requestNumber = 0
+  const translateSelection = async () => {
+    const request = ++requestNumber
+    const engineConfig = (currentConfig ?? config).engine
+    engine.options[0].text = fmt(ct('sel.defaultEngine', '默认 · {engine}'), {
+      engine: providerName(engineConfig.provider, engineConfig),
     })
+    translation.textContent = ct('sel.translating', '翻译中…')
+    const isCurrent = () => popup === card && request === requestNumber
+    try {
+      const result = await bg<TranslateResult>({
+        kind: 'translate', text, targetLang: target.value, provider: engine.value || undefined,
+      })
+      if (isCurrent()) translation.textContent = result.text
+    } catch (err) {
+      if (isCurrent()) translation.textContent = ct('sel.translateFailed', '翻译失败：') + (err as Error).message
+    }
+  }
+  for (const picker of [target, engine]) {
+    picker.addEventListener('change', event => {
+      event.stopPropagation()
+      void translateSelection()
+    })
+  }
 
   // ===== AI 阅读卡片（四动作解析 + 多轮追问，重灾区 #5） =====
   let aiPanelBuilt = false
@@ -153,7 +256,6 @@ function buildPopup(text: string, rect: DOMRect) {
   const buildAiPanel = () => {
     if (aiPanelBuilt) return
     aiPanelBuilt = true
-    const pageContext = contextAroundSelection(text)
 
     const resultBox = document.createElement('div')
     resultBox.className = 'tv-sel-ai-result'
@@ -261,17 +363,17 @@ function buildPopup(text: string, rect: DOMRect) {
     })
   }
 
-  addBtn(ct('sel.ai', 'AI 解析'), () => {
+  addBtn(actions, ct('sel.ai', 'AI 解析'), () => {
     aiBox.style.display = aiBox.style.display === 'none' ? 'block' : 'none'
     if (aiBox.style.display === 'block') buildAiPanel()
   }, 'secondary')
   if (config.learning.enabled) {
-    addBtn(ct('sel.save', '☆ 收藏'), async () => {
+    addBtn(actions, ct('sel.save', '☆ 收藏'), async () => {
       try {
         await bg({
           kind: 'saveWord',
           word: text,
-          context: contextAroundSelection(text),
+          context: pageContext,
           pageUrl: location.href,
           pageTitle: document.title,
         })
@@ -283,11 +385,11 @@ function buildPopup(text: string, rect: DOMRect) {
   }
   // 朗读：播放中按钮变「停止」，再点停止；自然播完自动还原
   const speaking = ttsPlayer.isPlaying()
-  const speakBtn = addBtn(speaking ? ct('sel.stop', '停止') : ct('sel.speak', '朗读'), () => toggleSpeak(text, config), 'icon', speaking ? STOP : SPEAK)
+  const speakBtn = addBtn(utilities, speaking ? ct('sel.stop', '停止') : ct('sel.speak', '朗读'), () => toggleSpeak(text, config), 'icon', speaking ? STOP : SPEAK)
   ttsPlayer.onStateChange = (playing) => {
     setActionIcon(speakBtn, playing ? ct('sel.stop', '停止') : ct('sel.speak', '朗读'), playing ? STOP : SPEAK)
   }
-  addBtn(ct('sel.copy', '复制'), async () => {
+  addBtn(utilities, ct('sel.copy', '复制'), async () => {
     try {
       await navigator.clipboard.writeText(text)
       toast(ct('sel.copied', '已复制'))
@@ -295,21 +397,15 @@ function buildPopup(text: string, rect: DOMRect) {
       toast(ct('sel.copyFailed', '复制失败'))
     }
   }, 'icon', COPY)
-  addBtn(ct('sel.close', '关闭'), () => removePopup(), 'icon', CLOSE)
+  addBtn(header, ct('sel.close', '关闭'), removePopup, 'icon', CLOSE)
 
-  // 定位：优先选区下方，越界则上方
-  const pad = 8
-  popup.style.visibility = 'hidden'
-  document.body.appendChild(popup)
-  const ph = popup.offsetHeight
-  const pw = popup.offsetWidth
-  let top = rect.bottom + pad + window.scrollY
-  if (rect.bottom + ph + pad > window.innerHeight) top = rect.top - ph - pad + window.scrollY
-  let left = rect.left + window.scrollX
-  left = Math.max(4, Math.min(left, window.scrollX + window.innerWidth - pw - 4))
-  popup.style.top = `${Math.max(4, top)}px`
-  popup.style.left = `${left}px`
-  popup.style.visibility = 'visible'
+  void translateSelection()
+  document.body.appendChild(card)
+  positionPopup(card, rect)
+  popupSize = new ResizeObserver(() => {
+    if (popup === card) positionPopup(card, rect)
+  })
+  popupSize.observe(card)
 }
 
 export function initSelection(config: Config) {
@@ -319,10 +415,11 @@ export function initSelection(config: Config) {
     if (!currentConfig?.selection.enabled) return
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
-      if (popup?.matches(':hover')) return // 用户正在操作气泡
+      if (!currentConfig?.selection.enabled) return
+      if (popup?.contains(document.activeElement) || popup?.matches(':hover')) return
       const text = getSelectionText()
       const minLen = 1
-      if (text.length < minLen || text.length > currentConfig!.selection.maxChars) return
+      if (text.length < minLen || text.length > currentConfig.selection.maxChars) return
       const sel = window.getSelection()
       if (!sel || sel.rangeCount === 0) return
       const node = sel.anchorNode

@@ -298,6 +298,17 @@ describe('connection checks', () => {
     await expect(translate('Hello', { targetLang: 'zh-CN', bypassCache: true, exactProvider: true }, makeConfig())).rejects.toThrow('selected service offline')
     expect(ENGINES.bing.translate).not.toHaveBeenCalled()
   })
+  it('keeps an explicit free engine separate from cached fallback results', async () => {
+    const config = makeConfig({ provider: 'google' })
+    const text = 'An explicit engine choice'
+    vi.mocked(ENGINES.google.translate).mockRejectedValueOnce(new Error('temporarily unavailable'))
+    expect((await translate(text, { targetLang: 'zh-CN' }, config)).text).toBe('[bing]' + text)
+
+    const exact = { targetLang: 'zh-CN', exactProvider: true }
+    expect((await translate(text, exact, config)).text).toBe('[google]' + text)
+    expect((await translate(text, exact, config)).text).toBe('[google]' + text)
+    expect(ENGINES.google.translate).toHaveBeenCalledTimes(2)
+  })
 })
 
 

@@ -153,10 +153,13 @@ function keyFor(
   text: string,
   terms: GlossaryTerm[],
   context?: string,
+  exactProvider = false,
 ): string {
   const sig = context ? `${sigOf(terms)}|ctx:${textHash(context)}` : sigOf(terms)
   const { provider, foxmori } = config.engine
-  const engine = provider === 'foxmori' ? `foxmori:${encodeURIComponent(foxmori.model.trim())}` : provider
+  let engine = provider === 'foxmori' ? `foxmori:${encodeURIComponent(foxmori.model.trim())}` : provider
+  // The default free chain may have cached a translation from a different engine.
+  if (exactProvider && FREE_CHAIN.includes(provider)) engine = `exact:${engine}`
   return cacheKey({ engine, from, to, text, promptSig: sig })
 }
 
@@ -312,7 +315,7 @@ export async function translate(
   const to = opts.targetLang
   const terms = await resolveEffectiveGlossary(config)
   const context = effectiveContext(opts, config.engine.provider)
-  const key = keyFor(config, from, to, text, terms, context)
+  const key = keyFor(config, from, to, text, terms, context, opts.exactProvider)
   const cached = await cacheGet(key)
   if (!opts.bypassCache && cached !== undefined) return { text: cached }
 

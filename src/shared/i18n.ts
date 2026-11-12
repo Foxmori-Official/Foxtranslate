@@ -97,6 +97,8 @@ const EN: Record<string, string> = {
   'lang.commonGroup': 'Common languages',
   'lang.allGroup': 'All languages',
   'brand.settings': 'Settings',
+  'sel.title': 'Translation',
+  'sel.defaultEngine': 'Default · {engine}',
   'sel.ai': 'AI Insights',
   'sel.save': '☆ Save',
   'sel.speak': 'Read aloud',

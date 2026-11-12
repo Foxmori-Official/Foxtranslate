@@ -1,5 +1,5 @@
 import type { Config } from '../../shared/config'
-import { FREE_ENGINE_IDS } from '../../shared/engines'
+import { FREE_ENGINE_IDS, builtinEngineSetupError } from '../../shared/engines'
 import type { Engine, EngineContext } from './types'
 import { googleEngine } from './google'
 import { bingEngine } from './bing'
@@ -31,18 +31,6 @@ export const ENGINES: Record<string, Engine> = {
 /** 免费引擎失败链顺序（契约 §7）：单引擎失败冷却 60s 沉底由管线层实现，此处只给顺序。 */
 export const FREE_CHAIN = FREE_ENGINE_IDS
 
-/** BYOK 引擎缺 key/缺配置时的引导文案。 */
-const BYOK_HINT: Record<string, string> = {
-  deepl: 'deepl: missing API key. Open the Foxtranslate options page to set it.',
-  openai: 'openai: missing API key. Open the Foxtranslate options page and fill in the OpenAI-compatible key field.',
-  deepseek: 'deepseek: missing API key (shared with the OpenAI-compatible key field). Open the Foxtranslate options page to set it.',
-  claude: 'claude: missing API key. Open the Foxtranslate options page to set it.',
-  gemini: 'gemini: missing API key. Open the Foxtranslate options page to set it.',
-  foxmori: 'foxmori: missing API key. Open the Foxtranslate options page to set it.',
-  libretranslate: 'libretranslate: no endpoint configured and no public fallback available.',
-  custom: 'custom: missing endpoint URL. Open the Foxtranslate options page to configure it.',
-}
-
 /**
  * 解析引擎并做静态可用性校验：BYOK 缺 key 在路由阶段就抛（错误信息引导去设置页），
  * 而不是等请求 401。BYOK 不进免费链（契约 §7：配置错误不该被静默掩盖）。
@@ -52,17 +40,8 @@ const BYOK_HINT: Record<string, string> = {
 export function resolveEngine(id: string, ctx: EngineContext): Engine {
   const engine = ENGINES[id]
   if (!engine) throw new Error(`resolveEngine: unknown engine "${id}"`)
-  const keys = ctx.config.engine.keys
-  if (id === 'deepl' && !keys.deepl) throw new Error(BYOK_HINT.deepl)
-  if (id === 'openai' && !keys.openai) throw new Error(BYOK_HINT.openai)
-  if (id === 'deepseek' && !keys.openai) throw new Error(BYOK_HINT.deepseek)
-  if (id === 'claude' && !keys.claude) throw new Error(BYOK_HINT.claude)
-  if (id === 'gemini' && !keys.gemini) throw new Error(BYOK_HINT.gemini)
-  if (id === 'foxmori') {
-    if (!keys.foxmori.trim()) throw new Error(BYOK_HINT.foxmori)
-    if (!ctx.config.engine.foxmori.model.trim()) throw new Error('Foxmori: choose a model on the options page.')
-  }
-  if (id === 'custom' && !ctx.config.engine.custom.url.trim()) throw new Error(BYOK_HINT.custom)
+  const setupError = builtinEngineSetupError(id, ctx.config.engine)
+  if (setupError) throw new Error(setupError)
   return engine
 }
 
