@@ -25,7 +25,7 @@ const COPY = {
   saving: ['正在保存…', 'Saving…', 'Wird gespeichert…'],
   translating: ['正在翻译…', 'Translating…', 'Wird übersetzt…'],
   defaults: ['基础设置', 'Preferences', 'Grundeinstellungen'],
-  assist: ['阅读与写作', 'Reading and writing', 'Lesen und Schreiben'],
+  assist: ['阅读辅助', 'Reading assistance', 'Lesehilfe'],
   data: ['词汇与隐私', 'Vocabulary and privacy', 'Vokabeln und Datenschutz'],
   video: ['视频与会议', 'Video and meetings', 'Videos und Besprechungen'],
   videoHint: ['点击 YouTube 播放器里的狐狸图标，打开字幕菜单。视频需要提供可读取的字幕轨，会议需要先开启平台字幕。', 'Use the fox icon in the YouTube player to open the caption menu. A readable caption track is required. Enable platform captions before using meeting captions.', 'Die Fuchs-Schaltfläche im YouTube-Player öffnet das Untertitelmenü. Eine lesbare Untertitelspur ist erforderlich. Aktivieren Sie bei Besprechungen zuerst die Plattformuntertitel.'],

@@ -1,8 +1,8 @@
-// 划词翻译：选区气泡（翻译 / AI 解析 / AI 写作 / 收藏生词 / 朗读 / 复制）。
+// 划词翻译：选区气泡（翻译 / AI 解析 / 收藏生词 / 朗读 / 复制）。
 import type { Config } from '../shared/config'
 import { ct } from './uiLang'
 import { fmt } from '../shared/i18n'
-import type { AiAssistAction, AiChatMessage, AiWriteAction, BgResponse } from '../shared/protocol'
+import type { AiAssistAction, AiChatMessage, BgResponse, TranslateResult } from '../shared/protocol'
 import { langName } from '../core/langs'
 import { outlineIcon } from '../shared/ui/icon'
 import { TtsPlayer } from './tts'
@@ -93,65 +93,9 @@ function toggleSpeak(text: string, config: Config): void {
   }
 }
 
-// ===== AI 写作面板（5 动作 + 语气/篇幅偏好） =====
-
-const WRITE_ACTIONS: ReadonlyArray<{ id: AiWriteAction; labelKey: string; zh: string }> = [
-  { id: 'polish', labelKey: 'sel.write.polish', zh: '润色' },
-  { id: 'continue', labelKey: 'sel.write.continue', zh: '续写' },
-  { id: 'summarize', labelKey: 'sel.write.summarize', zh: '总结' },
-  { id: 'reply', labelKey: 'sel.write.reply', zh: '回复' },
-  { id: 'translate', labelKey: 'sel.write.translate', zh: '翻译' },
-]
-
-const WRITE_TONES: ReadonlyArray<{ value: string; labelKey: string; zh: string }> = [
-  { value: 'default', labelKey: 'sel.tone.default', zh: '语气：默认' },
-  { value: 'formal', labelKey: 'sel.tone.formal', zh: '语气：正式' },
-  { value: 'casual', labelKey: 'sel.tone.casual', zh: '语气：随意' },
-  { value: 'humorous', labelKey: 'sel.tone.humorous', zh: '语气：幽默' },
-  { value: 'professional', labelKey: 'sel.tone.professional', zh: '语气：专业' },
-]
-
-const WRITE_LENGTHS: ReadonlyArray<{ value: string; labelKey: string; zh: string }> = [
-  { value: 'default', labelKey: 'sel.length.default', zh: '篇幅：默认' },
-  { value: 'shorter', labelKey: 'sel.length.shorter', zh: '篇幅：更短' },
-  { value: 'longer', labelKey: 'sel.length.longer', zh: '篇幅：更长' },
-]
-
-// 与 options/tabWriting.ts 共享的存储键（默认语气/篇幅；shared/* 由主代理接线，暂不入 config）
-const WRITING_PREFS_KEY = 'tv:writing_prefs_v1'
-
-let writeTone = 'default'
-let writeLength = 'default'
-let writePrefsLoaded = false
-
-/** 读取设置页保存的默认语气/篇幅，并同步到已打开的下拉。 */
-function loadWritePrefs(): void {
-  if (writePrefsLoaded) return
-  writePrefsLoaded = true
-  try {
-    chrome.storage.local.get(WRITING_PREFS_KEY, (res) => {
-      if (chrome.runtime.lastError) return
-      const prefs = res?.[WRITING_PREFS_KEY] as { tone?: string; length?: string } | undefined
-      if (typeof prefs?.tone === 'string') writeTone = prefs.tone
-      if (typeof prefs?.length === 'string') writeLength = prefs.length
-      document
-        .querySelectorAll<HTMLSelectElement>('.tv-sel-write-tone')
-        .forEach((s) => (s.value = writeTone))
-      document
-        .querySelectorAll<HTMLSelectElement>('.tv-sel-write-length')
-        .forEach((s) => (s.value = writeLength))
-    })
-  } catch {
-    // storage 不可用时保持默认
-  }
-}
-
 function buildPopup(text: string, rect: DOMRect) {
   removePopup()
   const config = currentConfig!
-  // 捕获当前选区 Range：点击气泡按钮后页面选区可能塌陷，"替换选区"前需恢复
-  const selNow = window.getSelection()
-  const savedRange = selNow && selNow.rangeCount > 0 ? selNow.getRangeAt(0).cloneRange() : null
   popup = document.createElement('div')
   popup.className = 'tv-sel-popup'
   popup.setAttribute('data-tv-owned', '1')
@@ -181,131 +125,6 @@ function buildPopup(text: string, rect: DOMRect) {
   aiBox.style.display = 'none'
   popup!.appendChild(aiBox)
 
-  // ===== AI 写作面板（懒构建，复用 tv-sel-ai 样式容器） =====
-  const writeBox = document.createElement('div')
-  writeBox.className = 'tv-sel-ai'
-  writeBox.style.display = 'none'
-  popup.appendChild(writeBox)
-
-  let writePanelBuilt = false
-  let writeResult = ''
-
-  /** 用生成结果替换当前选区；选区不可编辑时返回 false。 */
-  const replaceSelection = (newText: string): boolean => {
-    try {
-      const sel = window.getSelection()
-      if (sel && savedRange) {
-        sel.removeAllRanges()
-        sel.addRange(savedRange)
-      }
-      return document.execCommand('insertText', false, newText)
-    } catch {
-      return false
-    }
-  }
-
-  const buildWritePanel = () => {
-    if (writePanelBuilt) return
-    writePanelBuilt = true
-    loadWritePrefs()
-
-    const actionRow = document.createElement('div')
-    actionRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;'
-    const prefRow = document.createElement('div')
-    prefRow.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;'
-    const resultBox = document.createElement('div')
-    resultBox.style.cssText = 'white-space:pre-wrap;word-break:break-word;'
-    resultBox.textContent = ct('sel.aiStartHint', '选择上方动作开始。')
-    const resultActions = document.createElement('div')
-    resultActions.style.cssText = 'display:none;gap:4px;margin-top:6px;'
-    writeBox.append(actionRow, prefRow, resultBox, resultActions)
-
-    const mkSelect = (
-      cls: string,
-      options: ReadonlyArray<{ value: string; labelKey: string; zh: string }>,
-      current: string,
-      onChange: (v: string) => void,
-    ): HTMLSelectElement => {
-      const sel = document.createElement('select')
-      sel.className = cls
-      sel.style.cssText = 'font:11px var(--tv-font);flex:1;min-width:0;'
-      for (const o of options) {
-        const opt = document.createElement('option')
-        opt.value = o.value
-        opt.textContent = ct(o.labelKey, o.zh)
-        sel.appendChild(opt)
-      }
-      sel.value = current
-      sel.addEventListener('change', () => onChange(sel.value))
-      sel.addEventListener('click', (e) => e.stopPropagation())
-      return sel
-    }
-    prefRow.append(
-      mkSelect('tv-sel-write-tone', WRITE_TONES, writeTone, (v) => (writeTone = v)),
-      mkSelect('tv-sel-write-length', WRITE_LENGTHS, writeLength, (v) => (writeLength = v)),
-    )
-
-    const runWrite = (action: AiWriteAction) => {
-      resultBox.textContent = ct('sel.generating', '生成中…')
-      resultActions.style.display = 'none'
-      bg<string>({
-        kind: 'aiWrite',
-        action,
-        text,
-        tone: writeTone,
-        length: writeLength,
-        targetLang: config.general.targetLang,
-      })
-        .then((r) => {
-          writeResult = r
-          resultBox.textContent = r
-          resultActions.style.display = 'flex'
-        })
-        .catch((e: Error) => {
-          resultBox.textContent = ct('sel.writeFailed', '失败：') + e.message
-        })
-    }
-
-    for (const a of WRITE_ACTIONS) {
-      const b = document.createElement('button')
-      b.className = 'tv-sel-btn'
-      b.textContent = ct(a.labelKey, a.zh)
-      b.addEventListener('click', (e) => {
-        e.stopPropagation()
-        runWrite(a.id)
-      })
-      actionRow.appendChild(b)
-    }
-
-    const copyBtn = document.createElement('button')
-    copyBtn.className = 'tv-sel-btn'
-    copyBtn.textContent = ct('sel.copy', '复制')
-    copyBtn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      navigator.clipboard.writeText(writeResult).then(
-        () => toast(ct('sel.copied', '已复制')),
-        () => toast(ct('sel.copyFailed', '复制失败')),
-      )
-    })
-    const replaceBtn = document.createElement('button')
-    replaceBtn.className = 'tv-sel-btn tv-sel-primary'
-    replaceBtn.textContent = ct('sel.replace', '替换选区')
-    replaceBtn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      if (replaceSelection(writeResult)) {
-        toast(ct('sel.replaced', '已替换选区'))
-        removePopup()
-      } else {
-        // 选区不可编辑（普通网页文本）：退化为复制
-        navigator.clipboard.writeText(writeResult).then(
-          () => toast(ct('sel.notEditable', '选区不可编辑，已复制到剪贴板')),
-          () => toast(ct('sel.replaceFailed', '替换失败')),
-        )
-      }
-    })
-    resultActions.append(copyBtn, replaceBtn)
-  }
-
   const addBtn = (label: string, onClick: () => void, style: 'primary' | 'secondary' | 'icon', path = '') => {
     const b = document.createElement('button')
     b.type = 'button'
@@ -322,11 +141,8 @@ function buildPopup(text: string, rect: DOMRect) {
   }
 
   // 自动翻译
-  bg<string>({ kind: 'translate', text, targetLang: config.general.targetLang })
-    .then((r: string) => {
-      // translate 返回 {text,...} 结构
-      translation.textContent = (r as unknown as { text: string }).text ?? String(r)
-    })
+  bg<TranslateResult>({ kind: 'translate', text, targetLang: config.general.targetLang })
+    .then(result => { translation.textContent = result.text })
     .catch((err: Error) => {
       translation.textContent = ct('sel.translateFailed', '翻译失败：') + err.message
     })
@@ -340,6 +156,8 @@ function buildPopup(text: string, rect: DOMRect) {
     const pageContext = contextAroundSelection(text)
 
     const resultBox = document.createElement('div')
+    resultBox.className = 'tv-sel-ai-result'
+    resultBox.setAttribute('role', 'status')
     resultBox.style.cssText = 'white-space:pre-wrap;word-break:break-word;'
     resultBox.textContent = ct('sel.aiThinking', '思考中…')
 
@@ -388,8 +206,8 @@ function buildPopup(text: string, rect: DOMRect) {
       history.push({ role: 'user', content: q })
       sending = true
       sendBtn.disabled = true
-      bg<string>({ kind: 'aiChat', messages: history })
-        .then((reply) => {
+      bg<{ text: string }>({ kind: 'aiChat', messages: history })
+        .then(({ text: reply }) => {
           history.push({ role: 'assistant', content: reply })
           appendBubble('assistant', reply)
         })
@@ -419,13 +237,13 @@ function buildPopup(text: string, rect: DOMRect) {
     const actions4: AiAssistAction[] = ['meaning', 'grammar', 'usage', 'practice']
     Promise.all(
       actions4.map((a) =>
-        bg<string>({
+        bg<{ text: string }>({
           kind: 'aiAssist',
           action: a,
           text,
           context: pageContext,
           targetLang: config.general.targetLang,
-        }).catch((e: Error) => fmt(ct('sel.aiUnavailable', '（{action} 不可用：{msg}）'), { action: a, msg: e.message })),
+        }).then(result => result.text).catch((e: Error) => fmt(ct('sel.aiUnavailable', '（{action} 不可用：{msg}）'), { action: a, msg: e.message })),
       ),
     ).then((parts) => {
       const combined = parts.join('\n\n')
@@ -447,12 +265,6 @@ function buildPopup(text: string, rect: DOMRect) {
     aiBox.style.display = aiBox.style.display === 'none' ? 'block' : 'none'
     if (aiBox.style.display === 'block') buildAiPanel()
   }, 'secondary')
-  if (config.writing.enabled) {
-    addBtn(ct('sel.write', '✍ 写作'), () => {
-      writeBox.style.display = writeBox.style.display === 'none' ? 'block' : 'none'
-      if (writeBox.style.display === 'block') buildWritePanel()
-    }, 'secondary')
-  }
   if (config.learning.enabled) {
     addBtn(ct('sel.save', '☆ 收藏'), async () => {
       try {

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/icons/icon.svg" alt="" width="80" height="80">
+  <img src="public/icons/foxtranslate-logo.png" alt="" width="80" height="80">
   <h1>Foxtranslate</h1>
   <p>在浏览器里双语阅读网页、看字幕、翻译文档，随手收藏生词</p>
   <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">下载安装包</a> · <a href="#快速安装">安装步骤</a> · <a href="README.en.md">English</a></p>
@@ -30,7 +30,7 @@ YouTube 翻译需要可读取的字幕轨，适用于普通视频播放页。PDF
 | Foxmori 订阅 | 从「Foxmori 账户」连接已登录的主站，选择可用套餐分组并配置密钥 |
 | 自备配置 | DeepL、OpenAI 兼容接口、DeepSeek、Claude、Gemini、自托管 LibreTranslate 和自定义服务 |
 
-在「设置 → 翻译引擎」配置模型并测试连接，再设为当前引擎。AI 专家和阅读、写作辅助使用适用的 AI 服务。术语表和术语库可用于固定译法。
+在「设置 → 翻译引擎」配置模型并测试连接，再设为当前引擎。AI 专家和阅读辅助使用适用的 AI 服务。术语表和术语库可用于固定译法。
 
 ## 隐私
 

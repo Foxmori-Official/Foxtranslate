@@ -112,16 +112,16 @@ export function renderModelField(provider: 'foxmori' | 'openai' | 'deepseek', ct
   return wrap
 }
 
-export function renderFoxmoriAccount(ctx: Context, standalone = false): HTMLElement {
+function renderFoxmoriAccount(ctx: Context): HTMLElement {
   const copy = (key: Parameters<typeof featureCopy>[0]) => featureCopy(key, ctx.config().uiLang)
-  const panel = node('section', standalone ? 'card fox-account fox-account-page' : 'fox-account')
+  const panel = node('section', 'fox-account')
   const header = node('div', 'fox-account-header')
   const logo = node('img', 'account-logo')
-  logo.src = chrome.runtime.getURL('icons/icon48.png')
+  logo.src = chrome.runtime.getURL('engine-icons/foxmori.svg')
   logo.alt = ''
   logo.width = logo.height = 36
   const title = node('div')
-  title.append(node(standalone ? 'h2' : 'h3', 'account-title', copy(standalone ? 'accountConnection' : 'account')))
+  title.append(node('h3', 'account-title', copy('account')))
   header.append(logo, title)
 
   const accountBody = node('div', 'fox-account-body')
@@ -130,7 +130,7 @@ export function renderFoxmoriAccount(ctx: Context, standalone = false): HTMLElem
   const connectButton = button(copy('connect'))
   const status = node('p', 'hint account-status')
   if (keyConfigured && ctx.config().engine.keys.foxmori) {
-    status.textContent = copy(standalone ? 'accountKeyCreated' : 'keyCreated')
+    status.textContent = copy('keyCreated')
   }
   status.setAttribute('role', 'status')
   let connecting = false

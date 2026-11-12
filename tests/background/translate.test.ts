@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CONFIG, type Config } from '../../src/shared/config'
 import { ENGINES } from '../../src/background/engines'
-import { resetBatchQueues } from '../../src/background/batch'
+import { getBatchQueue, resetBatchQueues } from '../../src/background/batch'
 import { detectLang, translate, translateTexts, resetCooldowns } from '../../src/background/translate'
 
 // ---------- mock：engines 注册表 + 缓存 ----------
@@ -297,5 +297,47 @@ describe('connection checks', () => {
     vi.mocked(ENGINES.google.translate).mockRejectedValue(new Error('selected service offline'))
     await expect(translate('Hello', { targetLang: 'zh-CN', bypassCache: true, exactProvider: true }, makeConfig())).rejects.toThrow('selected service offline')
     expect(ENGINES.bing.translate).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('当前字幕的优先调度', () => {
+  it('当前句立即发出，后续字幕继续在时间窗中聚合', async () => {
+    vi.useFakeTimers()
+    const config = makeConfig({ provider: 'openai', batch: true })
+    const future = translate('future caption', { targetLang: 'zh-CN' }, config)
+    const current = await translate('current caption', { targetLang: 'zh-CN', immediate: true }, config)
+    expect(current.text).toBe('[openai:batch]current caption')
+    expect(vi.mocked(ENGINES.openai.translateBatch!).mock.calls.map(call => call[0])).toEqual([['current caption']])
+    await vi.advanceTimersByTimeAsync(config.batch.intervalMs)
+    await future
+    expect(vi.mocked(ENGINES.openai.translateBatch!).mock.calls[1][0]).toEqual(['future caption'])
+  })
+
+  it('当前句优先于尚未发送的预取，沿用相同的并发上限', async () => {
+    let releaseFirst: (value: string[]) => void = () => {}
+    const send = vi.fn(async (texts: string[]) => texts)
+    send.mockImplementationOnce(() => new Promise(resolve => { releaseFirst = resolve }))
+    const queue = getBatchQueue('priority-fixture', send, { intervalMs: 100, maxTexts: 1, maxChars: 1000, concurrency: 1 })
+    const first = queue.addTask('in flight')
+    const future = queue.addTask('future')
+    const current = queue.addTask('current', true)
+    expect(send).toHaveBeenCalledTimes(1)
+    releaseFirst(['in flight'])
+    await Promise.all([first, future, current])
+    expect(send.mock.calls.map(call => call[0])).toEqual([['in flight'], ['current'], ['future']])
+  })
+
+  it('批量失败后的单发重试也有超时', async () => {
+    vi.useFakeTimers()
+    const config = makeConfig({ provider: 'openai', batch: true })
+    config.engine.timeoutMs = 20
+    vi.mocked(ENGINES.openai.translateBatch!).mockRejectedValue(new Error('batch failed'))
+    vi.mocked(ENGINES.openai.translate).mockImplementation((_text, _from, _to, _ctx, signal) => new Promise((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new Error('request timed out')), { once: true })
+    }))
+    const request = expect(translateTexts(['caption'], { targetLang: 'zh-CN' }, config)).rejects.toThrow('request timed out')
+    await vi.advanceTimersByTimeAsync(21)
+    await request
   })
 })

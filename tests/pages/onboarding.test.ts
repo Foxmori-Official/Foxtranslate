@@ -171,7 +171,7 @@ describe('onboarding 页', () => {
     const items = Array.from(document.querySelectorAll<HTMLElement>('.ob-engine-item'))
     expect(items[0]?.dataset.engineId).toBe('foxmori')
     expect(items[0]?.querySelector('.ob-engine-icon')?.getAttribute('src')).toBe(
-      'icons/icon48.png',
+      'engine-icons/foxmori.svg',
     )
 
     // 选择 DeepL → 立即收到 engine.provider patch

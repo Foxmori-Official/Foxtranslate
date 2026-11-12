@@ -2,12 +2,11 @@ import type { Config, SubtitlePatch } from './config'
 
 // ===== content / popup → background =====
 export type BgRequest =
-  | { kind: 'translate'; text: string; targetLang: string; sourceLang?: string; context?: string }
+  | { kind: 'translate'; text: string; targetLang: string; sourceLang?: string; context?: string; immediate?: boolean }
   | { kind: 'translateBatch'; texts: string[]; targetLang: string; sourceLang?: string }
   | { kind: 'detectLang'; text: string }
   | { kind: 'aiAssist'; action: AiAssistAction; text: string; targetLang: string; context?: string }
   | { kind: 'aiChat'; messages: AiChatMessage[] }
-  | { kind: 'aiWrite'; action: AiWriteAction; text: string; tone?: string; length?: string; targetLang?: string }
   | { kind: 'extractTerms'; text: string; targetLang: string }
   | { kind: 'compareTranslate'; text: string; targetLang: string; engineIds: string[] }
   | { kind: 'getConfig' }
@@ -27,7 +26,6 @@ export type BgRequest =
   | { kind: 'command'; cmd: 'togglePage' | 'openOptions' | 'openVideoOptions' | 'openReview' | 'openFiles' }
 
 export type AiAssistAction = 'meaning' | 'grammar' | 'usage' | 'practice'
-export type AiWriteAction = 'polish' | 'continue' | 'summarize' | 'reply' | 'translate'
 
 /** AI 阅读卡片多轮追问的对话消息（首条 user 含选中内容+页面上下文，之后交替）。 */
 export interface AiChatMessage {

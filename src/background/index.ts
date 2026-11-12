@@ -5,7 +5,6 @@ import { fetchProviderModels } from './models'
 import { mergeSubtitlePreferences } from '../shared/config'
 import { translate, translateTexts, detectLang, aiAssist, aiChat } from './translate'
 import { compareTranslate } from './compare'
-import { aiWrite } from './aiWrite'
 import { extractTermsWithAI } from './glossaryLibs'
 import { syncCustomEngines } from './engines'
 import { getConfig, setConfig, updateConfig, incrementTranslatedChars, getWords, addWord, deleteWord, updateWord, toFsrsCard, toWordCard, watchConfig } from '../shared/store'
@@ -37,7 +36,7 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       assertExtensionPage(sender)
       return fetchProviderModels(config, msg.provider)
     case 'translate': {
-      const result = await translate(msg.text, { targetLang: msg.targetLang, sourceLang: msg.sourceLang, context: msg.context }, config)
+      const result = await translate(msg.text, { targetLang: msg.targetLang, sourceLang: msg.sourceLang, context: msg.context, immediate: msg.immediate }, config)
       await incrementTranslatedChars(msg.text.length)
       return result
     }
@@ -58,8 +57,6 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       return { text: await aiAssist(msg.action, msg.text, msg.targetLang, config, msg.context) }
     case 'aiChat':
       return { text: await aiChat(msg.messages, config) }
-    case 'aiWrite':
-      return { text: await aiWrite(msg.action, msg.text, { tone: msg.tone, length: msg.length, targetLang: msg.targetLang }, config) }
     case 'extractTerms':
       return { terms: await extractTermsWithAI(msg.text, msg.targetLang, config) }
     case 'getConfig':

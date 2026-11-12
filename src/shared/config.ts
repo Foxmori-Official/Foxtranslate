@@ -103,7 +103,6 @@ export interface Config {
   experts: { activeId: string; list: ExpertPreset[] }
   /** 术语库：内置库开关（id→enabled，库数据打包在 public/glossary/）+ 自定义库 */
   glossaryLibs: { enabled: Record<string, boolean>; custom: CustomGlossaryLibrary[] }
-  writing: { enabled: boolean }
   subtitles: SubtitlePreferences
   learning: { enabled: boolean; highlightOnPage: boolean }
   floatingBall: { enabled: boolean }
@@ -153,7 +152,6 @@ export const DEFAULT_CONFIG: Config = {
   glossary: [],
   experts: { activeId: 'general', list: BUILTIN_EXPERTS },
   glossaryLibs: { enabled: {}, custom: [] },
-  writing: { enabled: true },
   subtitles: {
     enabled: true, youtube: true, meet: true, showShortcut: true,
     displayMode: 'bilingual', translationPosition: 'below',

@@ -1,6 +1,7 @@
 import { DEFAULT_CONFIG, normalizeConfig, type SubtitlePatch, type SubtitlePreferences } from '../shared/config'
 import { matchHotkey } from '../shared/hotkeys'
 import { featureCopy } from '../shared/featureCopy'
+import { isAiProvider } from '../shared/engines'
 import { downloadSubtitles } from './subtitleDownload'
 import type { BgResponse } from '../shared/protocol'
 import { PlayerControl, type PlayerState } from './playerControl'
@@ -10,10 +11,8 @@ import { fetchYouTubeCues } from './ytFetch'
 import { YouTubeRenderer } from './ytRender'
 
 const LOOK_AHEAD_MS = 30_000 // 前瞻窗口（× playbackRate）
-const LOOK_BEHIND_MS = 5_000 // 补翻刚播过的
-const BATCH_MAX = 3 // 单次 tick 最多取多少条
-const CONCURRENCY = 3
-const FAILED_RETRY_MS = 60_000 // 失败冷却后可重试
+const BATCH_MAX = 8
+const FAILED_RETRY_MS = 5_000
 const SEEK_SETTLE_MS = 500
 const NAV_POLL_MS = 1000
 const PLAYER_WAIT_MS = 10_000
@@ -35,6 +34,7 @@ interface Session {
 let booted = false
 let enabled = false
 let targetLang = 'zh-CN'
+let cueConcurrency = 3
 let sessionSeq = 0
 let session: Session | null = null
 let navPollTimer: number | null = null
@@ -108,6 +108,7 @@ function applyConfiguration(raw: unknown): void {
     teardownSession()
   }
   uiLang = config.uiLang
+  cueConcurrency = config.batch.enabled && isAiProvider(config.engine.provider) ? BATCH_MAX : 3
   hotkey = config.hotkeys.toggleSubtitles
   applyPreferences(config.subtitles)
 }
@@ -324,7 +325,7 @@ function handlersFor(s: Session): SessionHandlers {
   return h
 }
 
-// ===== 翻译调度：前瞻窗口 + 并发 3 + Set 去重 + sessionId 防竞态 =====
+// ===== 翻译调度：当前字幕优先、前瞻预取、去重与会话隔离 =====
 
 function cueKey(cue: SubtitleCue): number {
   return Math.round(cue.start * 1000)
@@ -338,17 +339,16 @@ function translationTick(s: Session): void {
 
   const rate = video.playbackRate || 1
   const nowMs = video.currentTime * 1000
-  const lo = nowMs - LOOK_BEHIND_MS
   const hi = nowMs + LOOK_AHEAD_MS * rate
   const now = Date.now()
 
-  const capacity = Math.min(BATCH_MAX, CONCURRENCY - s.translatingStarts.size)
+  const capacity = Math.min(BATCH_MAX, cueConcurrency - s.translatingStarts.size)
   if (capacity <= 0) return
   const pending: SubtitleCue[] = []
   for (const cue of s.cues) {
     if (pending.length >= capacity) break
     const key = cueKey(cue)
-    if (key < lo || key > hi) continue
+    if (cue.end * 1000 <= nowMs || key > hi) continue
     if (cue.translation !== undefined) continue
     if (s.translatedStarts.has(key) || s.translatingStarts.has(key)) continue
     const failedAt = s.failedAt.get(key)
@@ -359,15 +359,17 @@ function translationTick(s: Session): void {
 
   for (const cue of pending) s.translatingStarts.add(cueKey(cue))
 
-  // 并发 3 的简易 worker pool
+  // 当前字幕单独排到后台队列前部，后续字幕可聚合，沿用引擎并发限制。
   const queue = pending.slice()
   const worker = async (): Promise<void> => {
     for (;;) {
+      if (s.disposed || session?.id !== s.id) return
       const cue = queue.shift()
       if (!cue) return
       const key = cueKey(cue)
       try {
-        const text = await translateText(cue.text, targetLang)
+        const current = cue.start <= video.currentTime && cue.end > video.currentTime
+        const text = await translateText(cue.text, targetLang, current)
         // sessionId 校验：切换视频后丢弃过期结果
         if (s.disposed || session?.id !== s.id) return
         cue.translation = text
@@ -384,6 +386,6 @@ function translationTick(s: Session): void {
       }
     }
   }
-  const workers = Math.min(CONCURRENCY, pending.length)
+  const workers = Math.min(cueConcurrency, pending.length)
   for (let i = 0; i < workers; i++) void worker().finally(() => translationTick(s))
 }

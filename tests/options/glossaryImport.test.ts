@@ -32,7 +32,7 @@ describe("getEngineOptions", () => {
       "libretranslate",
     ]);
     expect(opts[0].name).toBe("Foxmori");
-    expect(opts[0].icon).toBe("icons/icon48.png");
+    expect(opts[0].icon).toBe("engine-icons/foxmori.svg");
   });
 
   it("customEngines 追加在内置引擎之后，id 带 custom: 前缀，name 取 entry.name", () => {

@@ -40,8 +40,11 @@ try {
       }
       if (String(url) === 'https://api.foxmori.com/v1/chat/completions') {
         if (new Headers(init?.headers).get('authorization') !== 'Bearer sk-fixture-foxmori') return Response.json({}, { status: 401 })
-        if (JSON.parse(init.body).model !== 'fixture-translate') return Response.json({}, { status: 400 })
-        return Response.json({ choices: [{ message: { content: '你好 · Foxmori 测试' } }] })
+        const request = JSON.parse(init.body)
+        if (request.model !== 'fixture-translate' || request.messages.some(message => typeof message.content !== 'string')) return Response.json({}, { status: 400 })
+        const question = request.messages.at(-1).content
+        const content = question === '再举一个例子' ? '这是第一次追问的回复' : question === '解释这个例子' ? '这是第二次追问的回复' : '你好 · Foxmori 测试'
+        return Response.json({ choices: [{ message: { content } }] })
       }
       if (String(url) === 'https://api.openai.com/v1/chat/completions') {
         if (new Headers(init?.headers).get('authorization') !== 'Bearer sk-fixture-terms') return Response.json({}, { status: 401 })
@@ -164,6 +167,7 @@ try {
   await bubble.getByRole('button', { name: '朗读', exact: true }).waitFor()
   assert.equal(await bubble.locator('.tv-sel-utilities .tv-sel-icon').count(), 3)
   await bubble.locator('.tv-sel-primary').filter({ hasText: '收藏' }).waitFor()
+  assert.equal(await bubble.getByRole('button', { name: /写作/ }).count(), 0)
   await bubble.getByRole('button', { name: '关闭', exact: true }).click()
 
   // Popup still uses the actual active ordinary page.
@@ -254,6 +258,10 @@ try {
 
   await options.locator('[data-tab="general"]').click()
   await options.getByRole('link', { name: '文档翻译', exact: true }).waitFor()
+  assert.equal(await options.locator('.settings-workspace-nav a').count(), 2)
+  assert.equal(await options.locator('.settings-workspace-nav [data-destination="settings"]').count(), 0)
+  assert.equal(await options.locator('[data-tab="account"], [data-tab="writing"], .account-overview').count(), 0)
+  assert.ok(await options.locator('.side-footer').evaluate(footer => footer.lastElementChild.classList.contains('settings-workspace-nav')))
   assert.equal(await options.locator('[data-tab="glossaryLibs"]').isVisible(), false)
   await capture(options, 'foxtranslate-settings')
   await options.setViewportSize({ width: 390, height: 780 })
@@ -326,22 +334,20 @@ try {
   const accountOpened = browser.waitForEvent('page')
   await popup.getByRole('link', { name: 'Foxmori 账户', exact: true }).click()
   const provider = await accountOpened
-  await provider.waitForURL(origin + '/options.html#account')
-  const accountNav = provider.locator('[data-tab="account"]')
+  await provider.waitForURL(origin + '/options.html#engine')
+  const engineNav = provider.locator('[data-tab="engine"]')
   const loginButton = provider.getByRole('button', { name: '登录 Foxmori', exact: true })
   await loginButton.waitFor()
+  assert.equal(await engineNav.getAttribute('aria-current'), 'page')
   await provider.setViewportSize({ width: 1440, height: 900 })
   await provider.locator('[data-tab="general"]').click()
-  await accountNav.click()
+  assert.equal(await provider.locator('.account-overview, [data-tab="account"]').count(), 0)
+  await engineNav.click()
   await loginButton.waitFor()
-  await provider.locator('[data-tab="general"]').click()
-  await provider.getByRole('button', { name: '登录与连接', exact: true }).click()
-  assert.equal(await accountNav.getAttribute('aria-current'), 'page')
-  assert.ok(await provider.getByRole('heading', { name: 'Foxmori 账户', exact: true }).evaluate(el => el === document.activeElement))
-  await capture(provider, 'foxtranslate-account')
+  await capture(provider, 'foxtranslate-engine-account')
   await provider.setViewportSize({ width: 390, height: 780 })
   await leftRight(provider, '.sidebar', '.main')
-  await capture(provider, 'foxtranslate-account-narrow')
+  await capture(provider, 'foxtranslate-engine-account-narrow')
   await provider.setViewportSize({ width: 1440, height: 900 })
   const siteOpened = browser.waitForEvent('page')
   await loginButton.click()
@@ -365,10 +371,9 @@ try {
   }
   await provider.setViewportSize({ width: 1440, height: 900 })
   await provider.getByRole('button', { name: '创建 Foxmori 密钥' }).click()
-  await provider.getByText('密钥已配置，可在翻译引擎中选择模型并测试连接', { exact: true }).waitFor()
+  await provider.getByText('密钥已配置，请获取模型列表并选择模型。', { exact: true }).waitFor()
   assert.equal(createdKeys, 1)
   assert.equal((await config({})).engine.provider, 'google')
-  await provider.getByRole('button', { name: '配置翻译引擎', exact: true }).click()
   await provider.locator('[data-engine-id="foxmori"][aria-pressed="true"]').waitFor()
   assert.equal(await provider.locator('.engine-current').count(), 1)
   await provider.locator('[data-engine-id="google"] .engine-current').waitFor()
@@ -416,6 +421,25 @@ try {
   await provider.getByRole('button', { name: '设为当前引擎', exact: true }).click()
   await provider.locator('[data-engine-id="foxmori"] .engine-current').waitFor()
   assert.equal((await config({})).engine.provider, 'foxmori')
+  await content.bringToFront()
+  await content.evaluate(() => {
+    getSelection().removeAllRanges()
+    getSelection().selectAllChildren(document.getElementById('paragraph'))
+  })
+  await bubble.getByRole('button', { name: 'AI 解析', exact: true }).click()
+  const analysis = bubble.locator('.tv-sel-ai')
+  const initialAnalysis = Array(4).fill('你好 · Foxmori 测试').join('\n\n')
+  await content.waitForFunction(expected => document.querySelector('.tv-sel-ai-result')?.textContent === expected, initialAnalysis)
+  assert.ok(!(await analysis.innerText()).includes('[object Object]'))
+  const followUp = analysis.getByPlaceholder('追问：用法 / 近义词 / 更多例句…')
+  await followUp.fill('再举一个例子')
+  await analysis.getByRole('button', { name: '发送', exact: true }).click()
+  await analysis.getByText('这是第一次追问的回复', { exact: true }).waitFor()
+  await followUp.fill('解释这个例子')
+  await analysis.getByRole('button', { name: '发送', exact: true }).click()
+  await analysis.getByText('这是第二次追问的回复', { exact: true }).waitFor()
+  await capture(content, 'foxtranslate-reading-analysis')
+  await bubble.getByRole('button', { name: '关闭', exact: true }).click()
   await popup.reload()
   await popup.locator('[data-row="expert"]').waitFor()
   await noHorizontalOverflow(popup)
@@ -541,6 +565,7 @@ try {
   assert.equal(await ft.locator('img').getAttribute('src'), ballIcon)
   assert.equal(await ft.getAttribute('data-enabled'), 'false')
   await openMenu()
+  await video.locator('video').evaluate(element => { element.currentTime = 10 })
   await menu.getByRole('button', { name: '仅本次开启字幕翻译', exact: false }).click()
   const overlay = video.locator('#tv-yt-subtitle-host')
   await overlay.waitFor()
@@ -637,7 +662,7 @@ try {
       await capture(live, 'foxtranslate-youtube-live-unavailable')
     }
   }
-  console.log('PASS · setup languages, compact popup, workspace navigation, bilingual privacy, Foxmori session/key/models, translation/restore, document export, vocabulary review, YouTube menu/styles/SRT/shortcuts, CSP bridge and SPA')
+  console.log('PASS · setup languages, compact popup, workspace navigation, bilingual privacy, Foxmori session/key/models, AI analysis/follow-ups, translation/restore, document export, vocabulary review, YouTube menu/styles/SRT/shortcuts, CSP bridge and SPA')
 } finally {
   await browser?.close()
   await new Promise(done => fixture.close(done))

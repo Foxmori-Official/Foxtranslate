@@ -46,9 +46,7 @@ const EXPECTED_KEYS = [
   "lang.commonGroup",
   "lang.allGroup",
   "brand.settings",
-  "sel.writeFailed",
   "sel.ai",
-  "sel.write",
   "sel.save",
   "sel.speak",
   "sel.stop",
@@ -61,29 +59,10 @@ const EXPECTED_KEYS = [
   "sel.savedWord",
   "sel.ttsUnavailable",
   "sel.aiThinking",
-  "sel.aiStartHint",
   "sel.aiFollowPh",
   "sel.aiBusy",
   "sel.aiSend",
   "sel.aiRequestFailed",
-  "sel.generating",
-  "sel.replace",
-  "sel.replaced",
-  "sel.replaceFailed",
-  "sel.notEditable",
-  "sel.write.polish",
-  "sel.write.continue",
-  "sel.write.summarize",
-  "sel.write.reply",
-  "sel.write.translate",
-  "sel.tone.default",
-  "sel.tone.formal",
-  "sel.tone.casual",
-  "sel.tone.humorous",
-  "sel.tone.professional",
-  "sel.length.default",
-  "sel.length.shorter",
-  "sel.length.longer",
   "ball.tip",
   "input.replaced",
   "input.replaceFailed",
@@ -363,35 +342,6 @@ const EXPECTED_KEYS = [
   "opt.tts.s20",
   "opt.tts.s21",
   "opt.tts.s22",
-  "opt.writing.s1",
-  "opt.writing.s2",
-  "opt.writing.s3",
-  "opt.writing.s4",
-  "opt.writing.s5",
-  "opt.writing.s6",
-  "opt.writing.s7",
-  "opt.writing.s8",
-  "opt.writing.s9",
-  "opt.writing.s10",
-  "opt.writing.s11",
-  "opt.writing.s12",
-  "opt.writing.s13",
-  "opt.writing.s14",
-  "opt.writing.s15",
-  "opt.writing.s16",
-  "opt.writing.s17",
-  "opt.writing.s18",
-  "opt.writing.s19",
-  "opt.writing.s20",
-  "opt.writing.s21",
-  "opt.writing.s22",
-  "opt.writing.s23",
-  "opt.writing.s24",
-  "opt.writing.s25",
-  "opt.writing.s26",
-  "opt.writing.s27",
-  "opt.writing.s28",
-  "opt.writing.s29",
   "pop.s1",
   "pop.s2",
   "pop.s3",
@@ -481,7 +431,6 @@ const EXPECTED_KEYS = [
   "tab.privacy",
   "tab.glossary",
   "tab.glossaryLibs",
-  "tab.writing",
   "tab.tts",
   "tab.words",
   "tab.interaction",
@@ -493,7 +442,6 @@ const EXPECTED_KEYS = [
   "tabDesc.privacy",
   "tabDesc.glossary",
   "tabDesc.glossaryLibs",
-  "tabDesc.writing",
   "tabDesc.tts",
   "tabDesc.hotkeys",
   "tabDesc.words",
@@ -829,14 +777,12 @@ describe("通用页界面语言下拉", () => {
 
     expect(stored.uiLang).toBe("de");
     expect(navLabels()[0]).toBe("Allgemein");
-    expect(navLabels()[1]).toBe("Foxmori account");
-    expect(navLabels()[2]).toBe("Engines");
+    expect(navLabels()[1]).toBe("Engines");
     expect(qs<HTMLElement>(".page-title").textContent).toBe("Allgemein");
     expect(qs<HTMLElement>(".page-desc").textContent).toBe(
       "Sprache, Anzeigemodus sowie Website- und Sprachlisten",
     );
     expect(cardTitles()).toEqual([
-      "Foxmori account",
       "Sprachen",
       "Anzeigemodus",
       "Diese Websites immer übersetzen",
@@ -866,7 +812,7 @@ describe("通用页界面语言下拉", () => {
     expect(stored.uiLang).toBe("ja");
     expect(navLabels()[0]).toBe("一般");
     expect(qs<HTMLElement>(".page-title").textContent).toBe("一般");
-    expect(cardTitles().slice(0, 3)).toEqual(["Foxmori account", "Languages", "表示モード"]);
+    expect(cardTitles().slice(0, 2)).toEqual(["Languages", "表示モード"]);
   });
 
   it("auto 跟随浏览器：浏览器 en-US 时按英文渲染", async () => {

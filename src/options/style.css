@@ -719,13 +719,14 @@ input[type='checkbox']:not(.switch) {
 /* FOXMORI 品牌链接 */
 .side-footer {
   margin-top: auto;
-  padding: 14px 16px;
+  padding: 14px 0;
   border-top: 1px solid var(--tv-border);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .side-footer-link {
+  padding-inline: 12px;
   font-size: var(--tv-fs-caption);
   color: var(--tv-text-sub);
   text-decoration: none;
@@ -946,7 +947,6 @@ input[type='checkbox']:not(.switch) {
 
 .nav-group { display: block; color: var(--tv-text-sub); font-size: 12px; padding: 16px 12px 4px; }
 .nav-group:first-child { padding-top: 0; }
-.sidebar > .fox-nav-icons { margin: 0 0 16px; }
 .settings-nav-group { margin-top: 6px; }
 .settings-nav-group > summary { display: list-item; padding: 8px 12px; border-radius: var(--tv-radius-md); cursor: pointer; }
 .settings-nav-group > summary:hover { background: var(--tv-primary-softer); }
@@ -954,14 +954,7 @@ input[type='checkbox']:not(.switch) {
 .settings-review { text-decoration: none; }
 .settings-link { color: var(--tv-primary-text); text-underline-offset: 3px; }
 @media (max-width: 760px) {
-  .sidebar > .fox-nav-icons a { width: 29px; height: 34px; }
   .settings-nav-group > summary { padding-inline: 6px; }
-}
-.nav-account {
-  min-height: 44px;
-  color: var(--tv-primary-text);
-  font-weight: 600;
-  overflow-wrap: anywhere;
 }
 .field-label { overflow-wrap: anywhere; }
 .sidebar { display: flex; flex-direction: column; }
@@ -994,18 +987,7 @@ input[type='checkbox']:not(.switch) {
 .language-choices summary { cursor: pointer; color: var(--tv-primary-text); padding: 6px 0; font-size: 13px; }
 .language-choices .chips { margin-top: 12px; }
 .fox-account { padding: 18px 0 22px; margin-bottom: 12px; border-bottom: 1px solid var(--tv-border); }
-.account-overview, .account-next {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 24px;
-}
-.account-overview > div, .account-next > p { flex: 1 1 230px; min-width: 0; }
-.account-overview .card-desc, .account-next .hint { margin: 0; }
-.account-overview .btn, .account-next .btn, .fox-account-page .btn { min-height: 44px; }
-.fox-account-page { padding: 20px 22px; border-bottom: 1px solid var(--tv-border); }
-.account-next { padding: 0 2px; }
+.fox-account .btn { min-height: 44px; }
 .fox-account-header { display: flex; align-items: center; gap: 12px; }
 .account-title { margin: 0; font-size: 16px; }
 .fox-account .hint { margin-block: 4px 8px; }
@@ -1038,7 +1020,6 @@ input[type='checkbox']:not(.switch) {
   .caption-preview-pane { position: static; }
 }
 @media (max-width: 760px) {
-  .fox-account-page { padding: 16px 12px; }
   .fox-account-header { align-items: flex-start; }
   .account-logo { width: 28px; height: 28px; }
   .provider-key-row, .provider-model-row { flex-wrap: wrap; }
@@ -1048,4 +1029,14 @@ input[type='checkbox']:not(.switch) {
   .model-actions { justify-content: flex-start; }
   .caption-settings .caption-style-groups { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .caption-field select { min-width: 0; }
+}
+
+.settings-workspace-nav { display: grid; gap: 4px; margin-top: 8px; }
+.settings-workspace-nav a { display: flex; align-items: center; gap: 8px; width: auto; height: auto; min-height: 40px; padding: 8px 12px; }
+.settings-workspace-nav svg { flex: none; width: 18px; height: 18px; }
+.settings-workspace-nav span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .side-footer-link { padding-inline: 4px; }
+  .settings-workspace-nav a { gap: 6px; padding: 8px 4px; }
+  .settings-workspace-nav svg { width: 16px; height: 16px; }
 }

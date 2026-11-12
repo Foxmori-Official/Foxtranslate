@@ -45,7 +45,7 @@ interface EngineOption {
 }
 
 const ENGINE_ICON_FILES: Record<string, string> = {
-  foxmori: 'icons/icon48.png',
+  foxmori: 'engine-icons/foxmori.svg',
   google: 'engine-icons/google.svg',
   bing: 'engine-icons/bing.svg',
   mymemory: 'engine-icons/mymemory.png',

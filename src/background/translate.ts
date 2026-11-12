@@ -34,6 +34,7 @@ import { resolveEffectiveGlossary } from './glossaryLibs'
 export interface TranslateOptions {
   bypassCache?: boolean
   exactProvider?: boolean
+  immediate?: boolean
   targetLang: string
   sourceLang?: string
   /** 页面摘要上下文（content 侧 getPageContext 提取）：仅 AI 引擎注入 system prompt */
@@ -258,6 +259,7 @@ async function routePrepared(
   terms: GlossaryTerm[],
   ctxSig?: string,
   exactProvider = false,
+  immediate = false,
 ): Promise<EngineResult> {
   const ctx: EngineContext = { config }
   const engine = resolveEngine(config.engine.provider, ctx)
@@ -283,12 +285,12 @@ async function routePrepared(
         concurrency: config.batch.concurrency,
       },
       {
-        fallbackSingles: (t) => engine.translate(t, from, to, ctx).then((r) => r.text),
+        fallbackSingles: (t) => withTimeout(signal => engine.translate(t, from, to, ctx, signal), config.engine.timeoutMs).then((r) => r.text),
         // In memory only. Rotate the queue when a different account key or model is selected.
         configuration: engine.id === 'foxmori' ? JSON.stringify([config.engine.keys.foxmori, config.engine.foxmori.model]) : undefined,
       },
     )
-    const text = await queue.addTask(prepared)
+    const text = await queue.addTask(prepared, immediate)
     return { text }
   }
   return withTimeout((signal) => engine.translate(prepared, from, to, ctx, signal), config.engine.timeoutMs)
@@ -315,7 +317,7 @@ export async function translate(
 
   const prep = prepare(text, config, terms)
   const effConfig = context ? withPageContext(config, context) : config
-  const routed = await routePrepared(prep.text, from, to, effConfig, terms, context, opts.exactProvider)
+  const routed = await routePrepared(prep.text, from, to, effConfig, terms, context, opts.exactProvider, opts.immediate)
   const restored = restorePrepared(prep, routed.text)
   await cacheSet(key, restored)
   return { text: restored, detectedLang: routed.detectedLang }
@@ -358,11 +360,11 @@ export async function translateTexts(
     const preparedTexts = pendingIdx.map((i) => (preps[i] as Prepared).text)
     let outs: string[]
     try {
-      outs = await engine.translateBatch!(preparedTexts, from, to, { config: effConfig })
+      outs = await withTimeout(signal => engine.translateBatch!(preparedTexts, from, to, { config: effConfig }, signal), config.engine.timeoutMs)
     } catch {
       // 整批失败 → 逐条单发兜底
       outs = await Promise.all(
-        preparedTexts.map((t) => engine.translate(t, from, to, { config: effConfig }).then((r) => r.text)),
+        preparedTexts.map((t) => withTimeout(signal => engine.translate(t, from, to, { config: effConfig }, signal), config.engine.timeoutMs).then((r) => r.text)),
       )
     }
     for (let k = 0; k < pendingIdx.length; k++) {
@@ -434,12 +436,12 @@ const AI_ASSIST_PROMPTS: Record<AiAssistAction, (target: string) => string> = {
 const AI_PROVIDER_ERROR = '请先在设置页配置 AI 引擎'
 
 /**
- * AI 兼容端点解析（aiAssist / aiChat / aiWrite 共用，导出供 aiWrite 与单测）：
+ * AI 兼容端点解析（aiAssist / aiChat 共用）：
  * - openai/deepseek：各自 config 段的 endpoint/model，key 共用 keys.openai
  * - foxmori：固定端点 FOXMORI_ENDPOINT，key 走 keys.foxmori，model 走 engine.foxmori.model
  * - custom:<id>：endpoint/model/apiKey 均取 config.engine.customEngines 里的 entry
  * 非 AI provider、缺 key、或 custom 条目缺失时抛配置引导错误。
- * claude/gemini 为原生协议引擎，阅读辅助/写作的 OpenAI 兼容通道暂不支持（同旧行为抛引导错误）。
+ * claude/gemini 为原生协议引擎，阅读辅助的 OpenAI 兼容通道暂不支持（同旧行为抛引导错误）。
  */
 export function resolveAiEndpoint(config: Config): { base: string; model: string; apiKey: string } {
   const provider = config.engine.provider
@@ -489,23 +491,26 @@ async function postChatCompletion(
   logPrefix: string,
 ): Promise<string> {
   const { base, model, apiKey } = resolveAiEndpoint(config)
-  const res = await getFetch()(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ model, temperature, stream: false, messages }),
-  })
-  if (!res.ok) throw new Error(`${logPrefix}: HTTP ${res.status}`)
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>
-    error?: { message?: string }
-  }
-  if (data.error?.message) throw new Error(`${logPrefix}: ${data.error.message}`)
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content !== 'string') throw new Error(`${logPrefix}: unexpected response shape`)
-  return content.trim()
+  return withTimeout(async signal => {
+    const res = await getFetch()(`${base}/chat/completions`, {
+      method: 'POST',
+      signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model, temperature, stream: false, messages }),
+    })
+    if (!res.ok) throw new Error(`${logPrefix}: HTTP ${res.status}`)
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>
+      error?: { message?: string }
+    }
+    if (data.error?.message) throw new Error(`${logPrefix}: ${data.error.message}`)
+    const content = data.choices?.[0]?.message?.content
+    if (typeof content !== 'string') throw new Error(`${logPrefix}: unexpected response shape`)
+    return content.trim()
+  }, config.engine.timeoutMs)
 }
 
 /**

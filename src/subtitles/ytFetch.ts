@@ -162,13 +162,17 @@ function pickTrack(tracks: CaptionTrack[]): CaptionTrack | null {
 // ===== timedtext 下载 =====
 
 async function fetchText(url: string): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
   try {
-    const resp = await fetch(url, { credentials: 'include' })
+    const resp = await fetch(url, { credentials: 'include', signal: controller.signal })
     if (!resp.ok) return null
     const text = await resp.text()
     return text.trim() ? text : null
   } catch {
     return null
+  } finally {
+    window.clearTimeout(timer)
   }
 }
 
@@ -335,11 +339,14 @@ export async function fetchYouTubeCues(videoId: string): Promise<SubtitleCue[] |
   const track = pickTrack(playerData.captionTracks)
   if (!track) return null
 
-  // 快路径：内容脚本直接 fetch baseUrl + fmt=json3
+  // 播放器已捕获的授权地址可直接复用，避免先等待失效的原始地址。
   const directUrl = forceJson3(track.baseUrl)
-  let text = await fetchText(directUrl)
-  let cues = text ? tryParse(text, track) : null
-  if (cues && cues.length > 0) return cues
+  const urls = new Set([playerData.cachedTimedtextUrl, directUrl].filter((url): url is string => Boolean(url)).map(forceJson3))
+  for (const url of urls) {
+    const text = await fetchText(url)
+    const cues = text ? tryParse(text, track) : null
+    if (cues && cues.length > 0) return cues
+  }
 
   // 降级 1：MAIN world 已捕获的带 pot 的 timedtext URL
   let potUrl = playerData.cachedTimedtextUrl
@@ -356,8 +363,9 @@ export async function fetchYouTubeCues(videoId: string): Promise<SubtitleCue[] |
   }
 
   if (!potUrl) return null
-  text = await fetchText(forceJson3(potUrl))
-  cues = text ? tryParse(text, track) : null
+  if (urls.has(forceJson3(potUrl))) return null
+  const text = await fetchText(forceJson3(potUrl))
+  const cues = text ? tryParse(text, track) : null
   return cues && cues.length > 0 ? cues : null
 }
 

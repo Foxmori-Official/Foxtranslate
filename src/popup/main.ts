@@ -99,7 +99,7 @@ export interface EngineOption {
 
 /** 引擎图标文件映射（构建后位于 dist/engine-icons/，引用走 chrome.runtime.getURL） */
 export const ENGINE_ICON_FILES: Record<string, string> = {
-  foxmori: 'icons/icon48.png',
+  foxmori: 'engine-icons/foxmori.svg',
   google: 'engine-icons/google.svg',
   bing: 'engine-icons/bing.svg',
   mymemory: 'engine-icons/mymemory.png',
@@ -745,7 +745,7 @@ export async function init(): Promise<void> {
   const main = el('main', 'popup-main')
   const heading = el('div', 'popup-heading')
   const account = el('a', 'popup-account-link', featureCopy('account', config.uiLang))
-  account.href = chrome.runtime.getURL('options.html#account')
+  account.href = chrome.runtime.getURL('options.html#engine/foxmori')
   account.target = '_blank'
   account.rel = 'noopener noreferrer'
   heading.append(el('h1', 'page-heading', uiCopy('page', config.uiLang)), account)

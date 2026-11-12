@@ -2,15 +2,6 @@ import { registerDict, resolveUiLang, t } from './i18n'
 
 const COPY = {
   account: ['Foxmori 账户', 'Foxmori account'],
-  accountAccess: ['登录与连接', 'Sign in and connect'],
-  accountManage: ['管理账户', 'Manage account'],
-  accountOverview: ['使用 Foxmori 订阅时可连接账户，免费引擎可直接使用', 'Connect an account to use a Foxmori subscription. Free engines are ready to use.'],
-  accountDescription: ['连接主站账户，选择套餐并为扩展配置密钥', 'Connect your account, choose a subscription, and set up a key for the extension.'],
-  accountConnection: ['主站登录', 'Website sign-in'],
-  accountKeyReady: ['当前浏览器已配置 Foxmori API 密钥', 'A Foxmori API key is configured in this browser.'],
-  accountKeyCreated: ['密钥已配置，可在翻译引擎中选择模型并测试连接', 'Key configured. Choose a model and test the connection in Translation engines.'],
-  accountEngineHint: ['在翻译引擎中配置 Foxmori 模型，也可以填写已有的 API 密钥', 'Configure a Foxmori model in Translation engines, or enter an existing API key there.'],
-  accountEngine: ['配置翻译引擎', 'Configure translation engines'],
   login: ['登录 Foxmori', 'Sign in to Foxmori'],
   openConsole: ['打开 Foxmori 控制台', 'Open the Foxmori console'],
   viewSubscriptions: ['前往 Foxmori 订阅', 'View Foxmori subscriptions'],

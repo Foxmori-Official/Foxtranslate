@@ -1,4 +1,4 @@
-import { renderFoxmoriAccount, renderFoxmoriProvider, renderModelField } from './foxmoriProvider'
+import { renderFoxmoriProvider, renderModelField } from './foxmoriProvider'
 import { createCaptionPreview, renderSubtitlePreferences, SUBTITLE_SETTINGS_CSS } from '../shared/subtitleSettings'
 import { createReadingPreview } from '../shared/readingPreview'
 import type { SubtitlePatch, SubtitlePreferences } from '../shared/config'
@@ -23,7 +23,6 @@ import { genId } from '../shared/ids'
 import type { BgRequest, BgResponse, TestEngineResult, WordItem } from '../shared/protocol'
 import { renderExpertsTab } from './tabExperts'
 import { renderGlossaryLibsTab } from './tabGlossaryLibs'
-import { renderWritingTab } from './tabWriting'
 import { renderTtsTab } from './tabTts'
 import { renderHotkeysTab } from './tabHotkeys'
 import { BUILTIN_ENGINES, FREE_ENGINE_IDS, engineName, engineDesc } from '../shared/engines'
@@ -383,14 +382,12 @@ function patchEngine(update: (engine: Config['engine']) => Config['engine'], rer
 
 const TABS = [
   { id: 'general', label: '通用' },
-  { id: 'account', label: 'Foxmori 账户' },
   { id: 'engine', label: '翻译引擎' },
   { id: 'style', label: '译文样式' },
   { id: 'interaction', label: '交互' },
   { id: 'video', label: '视频与会议' },
   { id: 'hotkeys', label: '快捷键' },
   { id: 'experts', label: 'AI 专家' },
-  { id: 'writing', label: 'AI 写作' },
   { id: 'tts', label: '语音朗读' },
   { id: 'words', label: '生词本' },
   { id: 'glossary', label: '术语表' },
@@ -402,7 +399,6 @@ type TabId = (typeof TABS)[number]['id']
 
 /** 导航/页标题文案：随界面语言切换（auto 先解析为浏览器界面语言；zh-CN 时即 TABS 内的中文原文） */
 function tabLabel(id: TabId, zh: string): string {
-  if (id === 'account') return featureCopy('account', config.uiLang)
   return id === 'video' ? uiCopy('video', config.uiLang) : t(`tab.${id}`, resolveUiLang(config.uiLang), zh)
 }
 
@@ -412,7 +408,6 @@ const TAB_DESCS: Partial<Record<TabId, string>> = {
   style: '译文在页面中的展示样式',
   privacy: '本地敏感信息脱敏与使用统计',
   glossary: '固定术语译法，保证翻译一致性',
-  writing: 'AI 写作助手的语气与篇幅偏好',
   tts: '朗读语速、音调与音量',
   hotkeys: '自定义全局快捷键',
   words: '收藏的生词，支持 JSON 导入导出',
@@ -421,9 +416,19 @@ const TAB_DESCS: Partial<Record<TabId, string>> = {
 }
 
 const FEATURE_TAB_DESCS: Partial<Record<TabId, Parameters<typeof featureCopy>[0]>> = {
-  account: 'accountDescription',
   engine: 'enginePageDescription',
   glossaryLibs: 'glossaryPageDescription',
+}
+
+function buildWorkspaceNavigation(): HTMLElement {
+  const nav = appNavigation('settings', config.uiLang, true)
+  nav.querySelector('[data-destination="settings"]')?.remove()
+  nav.classList.add('settings-workspace-nav')
+  nav.dataset.language = config.uiLang
+  for (const link of nav.querySelectorAll<HTMLAnchorElement>('a')) {
+    link.append(el('span', '', link.getAttribute('aria-label') ?? ''))
+  }
+  return nav
 }
 
 function buildShell(root: HTMLElement): void {
@@ -441,7 +446,7 @@ function buildShell(root: HTMLElement): void {
   const nav = el('nav', 'nav')
   let groupItems: HTMLElement = nav
   for (const tab of TABS) {
-    const btn = el('button', tab.id === 'account' ? 'nav-btn nav-account' : 'nav-btn', tabLabel(tab.id, tab.label))
+    const btn = el('button', 'nav-btn', tabLabel(tab.id, tab.label))
     btn.type = 'button'
     btn.dataset.tab = tab.id
     if (tab.id === 'general') {
@@ -457,9 +462,8 @@ function buildShell(root: HTMLElement): void {
     btn.addEventListener('click', () => switchTab(tab.id))
     groupItems.append(btn)
   }
-  workspaceNav = appNavigation('settings', config.uiLang, true)
-  workspaceNav.dataset.language = config.uiLang
-  sidebar.append(brand, workspaceNav, nav)
+  workspaceNav = buildWorkspaceNavigation()
+  sidebar.append(brand, nav)
 
   const sideFooter = el('div', 'side-footer')
   const siteLink = el('a', 'side-footer-link', 'foxmori.com')
@@ -474,7 +478,7 @@ function buildShell(root: HTMLElement): void {
   privacyLink.href = chrome.runtime.getURL('privacy.html')
   privacyLink.target = '_blank'
   privacyLink.rel = 'noopener noreferrer'
-  sideFooter.append(siteLink, guideLink, privacyLink)
+  sideFooter.append(siteLink, guideLink, privacyLink, workspaceNav)
   sidebar.append(sideFooter)
 
   const main = el('main', 'main')
@@ -507,8 +511,7 @@ function renderContent(): void {
   if (!contentEl) return
   document.documentElement.lang = resolveUiLang(config.uiLang)
   if (workspaceNav.dataset.language !== config.uiLang) {
-    const navigation = appNavigation('settings', config.uiLang, true)
-    navigation.dataset.language = config.uiLang
+    const navigation = buildWorkspaceNavigation()
     workspaceNav.replaceWith(navigation)
     workspaceNav = navigation
   }
@@ -536,9 +539,6 @@ function renderContent(): void {
     case 'general':
       renderGeneral(contentEl)
       break
-    case 'account':
-      renderAccountTab(contentEl)
-      break
     case 'engine':
       renderEngine(contentEl)
       break
@@ -559,9 +559,6 @@ function renderContent(): void {
       break
     case 'glossaryLibs':
       renderGlossaryLibsTab(contentEl, { config, patchConfig, el: elAny })
-      break
-    case 'writing':
-      renderWritingTab(contentEl, { config, patchConfig, el })
       break
     case 'tts':
       renderTtsTab(contentEl, { config, patchConfig, el })
@@ -595,36 +592,11 @@ const providerContext = {
   },
 }
 
-function renderAccountTab(root: HTMLElement): void {
-  const next = el('div', 'account-next')
-  const configure = el('button', 'btn btn-secondary', featureCopy('accountEngine', config.uiLang))
-  configure.type = 'button'
-  configure.addEventListener('click', () => {
-    inspectedEngine = 'foxmori'
-    switchTab('engine', true)
-  })
-  next.append(el('p', 'hint', featureCopy('accountEngineHint', config.uiLang)), configure)
-  root.append(renderFoxmoriAccount(providerContext, true), next)
-}
-
 // ===== 标签页 1：通用 =====
 
 function renderGeneral(root: HTMLElement): void {
   // 界面语言：auto 先解析为浏览器界面语言；t() 对 zh-CN 直接回退中文原文
   const L = resolveUiLang(config.uiLang)
-  const configured = Boolean(config.engine.keys.foxmori)
-  const account = el('section', 'card account-overview')
-  const accountCopy = el('div')
-  accountCopy.append(
-    el('h2', 'card-title', featureCopy('account', config.uiLang)),
-    el('p', 'card-desc', featureCopy(configured ? 'accountKeyReady' : 'accountOverview', config.uiLang)),
-  )
-  const accountAction = el('button', 'btn', featureCopy(configured ? 'accountManage' : 'accountAccess', config.uiLang))
-  accountAction.type = 'button'
-  accountAction.addEventListener('click', () => switchTab('account', true))
-  account.append(accountCopy, accountAction)
-  root.append(account)
-
   // 目标语言
   const langCard = card(
     uiCopy('language', config.uiLang),
@@ -781,7 +753,7 @@ export interface EngineOption {
 
 /** 引擎图标（构建后位于 dist/engine-icons/，引用走 chrome.runtime.getURL） */
 const ENGINE_ICON_FILES: Record<string, string> = {
-  foxmori: 'icons/icon48.png',
+  foxmori: 'engine-icons/foxmori.svg',
   google: 'engine-icons/google.svg',
   bing: 'engine-icons/bing.svg',
   mymemory: 'engine-icons/mymemory.png',
@@ -1843,7 +1815,12 @@ async function init(): Promise<void> {
   }
   buildShell(app)
   const requested = location.hash.slice(1)
-  switchTab(TABS.some(tab => tab.id === requested) ? requested as TabId : 'general')
+  if (requested === 'account' || requested === 'engine/foxmori') {
+    inspectedEngine = 'foxmori'
+    switchTab('engine')
+  } else {
+    switchTab(TABS.some(tab => tab.id === requested) ? requested as TabId : 'general')
+  }
 }
 
 // 仅在浏览器环境启动（node 测试导入时不执行，避免触碰 document/chrome）

@@ -10,11 +10,12 @@ export interface SubtitleCue {
 }
 
 /** 翻译函数：内容脚本经 background 消息 */
-export async function translateText(text: string, targetLang: string): Promise<string> {
+export async function translateText(text: string, targetLang: string, immediate = false): Promise<string> {
   const resp = (await chrome.runtime.sendMessage({
     kind: 'translate',
     text,
     targetLang,
+    immediate,
   })) as BgResponse<{ text: string }>
   if (!resp.ok) throw new Error(resp.error)
   return resp.data.text

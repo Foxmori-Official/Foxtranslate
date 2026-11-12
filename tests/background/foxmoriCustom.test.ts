@@ -371,7 +371,7 @@ describe('isAiProvider', () => {
   })
 })
 
-// ---------- resolveAiEndpoint（aiAssist/aiChat/aiWrite 共用的端点解析） ----------
+// ---------- resolveAiEndpoint（aiAssist/aiChat 共用的端点解析） ----------
 
 describe('resolveAiEndpoint', () => {
   it('foxmori：固定 base + engine.foxmori.model + keys.foxmori', () => {

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/icons/icon.svg" alt="" width="80" height="80">
+  <img src="public/icons/foxtranslate-logo.png" alt="" width="80" height="80">
   <h1>Foxtranslate</h1>
   <p>Read webpages in two languages, translate captions and documents, and save words for review</p>
   <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">Download</a> · <a href="#install">Installation</a> · <a href="README.md">简体中文</a></p>
@@ -30,7 +30,7 @@ YouTube translation requires a readable caption track on a regular watch page. P
 | Foxmori subscription | Connect a signed-in website account, choose an available subscription group, and configure a key |
 | Bring your own configuration | DeepL, OpenAI-compatible services, DeepSeek, Claude, Gemini, self-hosted LibreTranslate, and custom services |
 
-In **Settings → Translation engines**, configure and test a service before setting it as the current engine. Expert prompts and AI reading or writing features use supported AI engines. Glossaries keep translations of selected terms consistent.
+In **Settings → Translation engines**, configure and test a service before setting it as the current engine. Expert prompts and AI reading features use supported AI engines. Glossaries keep translations of selected terms consistent.
 
 ## Privacy
 

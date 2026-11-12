@@ -44,7 +44,7 @@ describe('getEngineOptions', () => {
 
 describe('引擎图标映射', () => {
   it('foxmori 与用户提供的图标用 png，其余内置引擎用同名 svg', () => {
-    expect(engineIconFor('foxmori')).toBe('icons/icon48.png')
+    expect(engineIconFor('foxmori')).toBe('engine-icons/foxmori.svg')
     expect(engineIconFor('mymemory')).toBe('engine-icons/mymemory.png')
     expect(engineIconFor('libretranslate')).toBe('engine-icons/libretranslate.png')
     for (const id of ['google', 'bing', 'deepl', 'openai', 'deepseek', 'claude', 'gemini']) {

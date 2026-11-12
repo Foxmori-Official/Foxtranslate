@@ -26,7 +26,7 @@ export interface BatchQueueExtra {
 }
 
 export interface BatchQueue {
-  addTask(text: string): Promise<string>
+  addTask(text: string, immediate?: boolean): Promise<string>
 }
 
 interface PendingTask {
@@ -48,8 +48,13 @@ class KeyBatchQueue implements BatchQueue {
     private readonly extra: BatchQueueExtra = {},
   ) {}
 
-  addTask(text: string): Promise<string> {
+  addTask(text: string, immediate = false): Promise<string> {
     return new Promise<string>((resolve, reject) => {
+      if (immediate) {
+        this.waiting.unshift([{ text, resolve, reject }])
+        this.pump()
+        return
+      }
       // 双阈值截断：本条加入会超出 maxChars 且缓冲非空 → 先发当前批，本条开新批
       if (this.pending.length > 0 && this.pendingChars + text.length > this.opts.maxChars) {
         this.flush()
