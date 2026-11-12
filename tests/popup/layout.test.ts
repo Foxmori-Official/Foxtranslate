@@ -188,6 +188,8 @@ describe('popup i18n（uiLang）', () => {
     expect(app.querySelector('[data-destination="settings"]')?.getAttribute('aria-label')).toBe('设置')
     expect(Array.from(app.querySelectorAll('.popup-nav-label')).map(label => label.textContent))
       .toEqual(['文档翻译', '生词复习', '设置'])
+    expect(app.lastElementChild?.classList.contains('popup-footer')).toBe(true)
+    expect(app.querySelector('.popup-header .fox-nav')).toBeNull()
     expect(app.querySelector('a[href$="onboarding.html"]')).toBeNull()
     expect(app.querySelector('.due-badge')?.textContent).toBe('2')
     expect(app.querySelector('.popup-account-link')?.textContent).toBe('Foxmori 账户')

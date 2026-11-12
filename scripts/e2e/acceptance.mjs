@@ -175,7 +175,8 @@ try {
   await popup.locator('.controls').waitFor()
   await noHorizontalOverflow(popup)
   assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().width), 360)
-  assert.equal(await popup.locator('.popup-header .fox-nav a').count(), 3)
+  assert.equal(await popup.locator('.popup-footer .fox-nav a').count(), 3)
+  assert.equal(await popup.locator('.popup-header .fox-nav a').count(), 0)
   for (const label of ['Dokumente', 'Vokabeln', 'Einstellungen']) {
     assert.equal(await popup.getByText(label, { exact: true }).isVisible(), true)
   }

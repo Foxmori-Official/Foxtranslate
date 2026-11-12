@@ -6,8 +6,6 @@ html, body { width: 360px; max-width: 100%; margin: 0; }
 body { font: 13px/1.5 var(--tv-font); color: var(--tv-text); background: var(--tv-bg); -webkit-font-smoothing: antialiased; }
 button, select { font: inherit; }
 .popup-header {
-  display: grid;
-  gap: 8px;
   padding: 8px 16px;
   border-bottom: 1px solid var(--tv-border);
   background: var(--tv-card);
@@ -43,7 +41,7 @@ button, select { font: inherit; }
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.popup-main { min-width: 0; padding: 9px 16px 12px; }
+.popup-main { min-width: 0; padding: 9px 16px 10px; }
 .popup-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .page-heading { font-size: 16px; line-height: 1.3; margin: 0; }
 .popup-account-link {
@@ -119,3 +117,4 @@ button, select { font: inherit; }
 .site-host { grid-column: 1; font-size: 12px; color: var(--tv-text-sub); overflow-wrap: anywhere; }
 .site-policy { grid-column: 2; grid-row: 1 / span 2; width: 100%; }
 .site-hint { grid-column: 1 / -1; font-size: 12px; color: var(--tv-text-sub); margin: 2px 0 0; }
+.popup-footer { padding: 8px 16px 10px; border-top: 1px solid var(--tv-border); background: var(--tv-card); }
