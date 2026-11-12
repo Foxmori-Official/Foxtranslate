@@ -21,6 +21,7 @@ try {
     channel: 'chromium',
     executablePath: process.env.FOXTRANSLATE_TEST_CHROMIUM,
     headless: true,
+    locale: 'en-US',
     args: ['--disable-extensions-except=' + extension, '--load-extension=' + extension],
   })
   browser.setDefaultTimeout(10_000)
@@ -52,6 +53,7 @@ try {
   const controlPage = await browser.newPage()
   await controlPage.goto(origin + '/options.html')
   await controlPage.locator('.nav-btn.active').waitFor()
+  assert.equal(await controlPage.evaluate(() => navigator.language), 'en-US')
   async function config(patch) {
     return controlPage.evaluate(async patch => {
       const result = await chrome.runtime.sendMessage({ kind: 'setConfig', patch })

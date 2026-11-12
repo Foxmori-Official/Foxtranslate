@@ -954,7 +954,7 @@ for (const [lang, dict] of Object.entries(PAGE_DICTS)) {
 export function watchUiLang(cb: (lang: ResolvedLang) => void): void {
   try {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local') return
+      if (areaName !== 'local' || !changes['tv:config_v1']) return
       const raw: unknown = changes['tv:config_v1']?.newValue
       const uiLang =
         typeof raw === 'object' &&

@@ -167,4 +167,15 @@ describe('files 页 i18n', () => {
     expect(q('.file-page-title').textContent).toBe('文档翻译')
     expect(q('.actions .btn').textContent).toBe('开始翻译')
   })
+
+  it('英文系统中保存生词时保持用户选择的中文界面', async () => {
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-US')
+    const { storageListener } = await boot('zh-CN')
+    await waitTitle('文档翻译')
+    if (!storageListener) throw new Error('storage.onChanged 监听未注册')
+
+    storageListener({ 'tv:words_v1': { newValue: [] } }, 'local')
+    expect(q('.file-page-title').textContent).toBe('文档翻译')
+    expect(q('.actions .btn').textContent).toBe('开始翻译')
+  })
 })
