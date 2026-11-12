@@ -84,54 +84,6 @@ tv-translation.tv-tr-replace {
   margin: 0;
 }
 
-/* ===== 12 种译文样式（产品特色，视觉保持不动；原引用变量的值已内联以隔离 tokens 变更） ===== */
-tv-translation.tv-style-plain { color: inherit; }
-tv-translation.tv-style-soft-gray, tv-translation.tv-style-soft-gray .tv-tr-inner { color: #64748b; }
-tv-translation.tv-style-bold .tv-tr-inner { font-weight: 700; }
-tv-translation.tv-style-italic .tv-tr-inner { font-style: italic; }
-tv-translation.tv-style-underline-dotted .tv-tr-inner {
-  text-decoration: underline dotted rgba(64, 158, 255, 0.6);
-  text-underline-offset: 3px;
-}
-tv-translation.tv-style-highlight-yellow .tv-tr-inner {
-  background: rgba(250, 204, 21, 0.28);
-  padding: 0 2px;
-  border-radius: 6px;
-}
-tv-translation.tv-style-highlight-green .tv-tr-inner {
-  background: rgba(74, 222, 128, 0.22);
-  padding: 0 2px;
-  border-radius: 6px;
-}
-tv-translation.tv-style-card {
-  background: rgba(64, 158, 255, 0.08);
-  border: 1px solid rgba(64, 158, 255, 0.35);
-  border-radius: 10px;
-  padding: 0.5em 0.75em;
-}
-tv-translation.tv-style-rounded .tv-tr-inner {
-  background: rgba(100, 116, 139, 0.1);
-  border-radius: 999px;
-  padding: 0.1em 0.7em;
-}
-tv-translation.tv-style-quote {
-  border-left: 3px solid #409eff;
-  padding-left: 0.7em;
-  color: #4b5563;
-}
-tv-translation.tv-style-gradient .tv-tr-inner {
-  background: linear-gradient(120deg, rgba(64, 158, 255, 0.12), rgba(121, 187, 255, 0.12));
-  border-radius: 6px;
-  padding: 0 3px;
-}
-tv-translation.tv-style-frosted .tv-tr-inner {
-  background: rgba(148, 163, 184, 0.14);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-radius: 6px;
-  padding: 0.1em 0.4em;
-}
-
 /* ===== 加载与错误 ===== */
 .tv-loading {
   display: inline-block;
@@ -188,14 +140,16 @@ tv-translation.tv-style-frosted .tv-tr-inner {
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(41, 61, 51, 0.18);
+  opacity: 0.78;
   user-select: none;
   transition: transform 0.15s ease, opacity 0.2s ease;
 }
-.tv-ball:hover { transform: scale(1.08); }
+.tv-ball:hover, .tv-ball:focus-visible { opacity: 1; }
+.tv-ball:hover { transform: scale(1.06); }
 .tv-ball.tv-ball-active {
+  opacity: 1;
   outline: 2px solid var(--tv-primary);
   outline-offset: 3px;
-  box-shadow: 0 4px 12px rgba(41, 61, 51, 0.18);
 }
 
 .tv-ball > img {
@@ -215,8 +169,9 @@ tv-translation.tv-style-frosted .tv-tr-inner {
 .tv-sel-popup {
   position: absolute;
   z-index: var(--tv-z-index);
-  max-width: 380px;
-  min-width: 220px;
+  box-sizing: border-box;
+  max-width: min(380px, calc(100vw - 12px));
+  min-width: min(220px, calc(100vw - 12px));
   background: var(--tv-card);
   color: var(--tv-text);
   border: 1px solid rgba(41, 61, 51, 0.08);
@@ -232,9 +187,13 @@ tv-translation.tv-style-frosted .tv-tr-inner {
 .tv-sel-source {
   color: var(--tv-text-sub);
   font-size: 12px;
-  margin-bottom: 6px;
+  min-width: 0;
   word-break: break-word;
 }
+.tv-sel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.tv-sel-utilities { display: flex; gap: 2px; flex: none; }
+.tv-sel-utilities > .tv-sel-icon { width: 27px; height: 27px; padding: 4px; }
+.tv-sel-icon > svg { width: 16px; height: 16px; pointer-events: none; }
 .tv-sel-translation {
   color: var(--tv-text);
   white-space: pre-wrap;
@@ -248,7 +207,6 @@ tv-translation.tv-style-frosted .tv-tr-inner {
   padding-top: 8px;
   border-top: 1px solid rgba(41, 61, 51, 0.06);
 }
-/* 按钮基态 = ghost（朗读/复制/关闭，固定为倒数第 3/2/1 个）：无边框灰字 */
 .tv-sel-btn {
   display: inline-flex;
   align-items: center;
@@ -272,31 +230,21 @@ tv-translation.tv-style-frosted .tv-tr-inner {
   outline: none;
   box-shadow: var(--tv-focus-ring);
 }
-/* secondary（暖白底、绿边和绿字）：AI 解析（始终第 1 个）与 ✍ 写作（第 2 个；
-   朗读固定为倒数第 3，需排除以覆盖写作/收藏被关闭时的精简按钮组） */
-.tv-sel-actions > .tv-sel-btn:first-child,
-.tv-sel-actions > .tv-sel-btn:nth-child(2):not(:nth-last-child(3)) {
+.tv-sel-btn.tv-sel-secondary {
   background: var(--tv-card);
   border-color: var(--tv-primary-text);
   color: var(--tv-primary-text);
 }
-.tv-sel-actions > .tv-sel-btn:first-child:hover,
-.tv-sel-actions > .tv-sel-btn:nth-child(2):not(:nth-last-child(3)):hover {
+.tv-sel-btn.tv-sel-secondary:hover {
   background: var(--tv-primary-soft);
   color: var(--tv-primary-text);
 }
-/* primary（绿底白字）：☆ 收藏（紧邻朗读之前，即倒数第 4；4 按钮精简态下
-   倒数第 4 是 AI 解析，由 :not(:first-child) 排除）。置后以便与 secondary 命中
-   同一按钮时（写作/收藏仅开其一的 5 按钮态）由本规则胜出。
-   .tv-sel-primary 为 JS 侧既有类名（写作面板"替换选区"），同样式。 */
-.tv-sel-btn.tv-sel-primary,
-.tv-sel-actions > .tv-sel-btn:nth-last-child(4):not(:first-child) {
+.tv-sel-btn.tv-sel-primary {
   background: var(--tv-primary-strong);
   border-color: var(--tv-primary-strong);
   color: #fff;
 }
-.tv-sel-btn.tv-sel-primary:hover,
-.tv-sel-actions > .tv-sel-btn:nth-last-child(4):not(:first-child):hover {
+.tv-sel-btn.tv-sel-primary:hover {
   opacity: 0.88;
   background: var(--tv-primary-strong);
   border-color: var(--tv-primary-strong);
@@ -371,19 +319,6 @@ mark.tv-hl {
   .tv-loading {
     animation-duration: 1.6s !important;
   }
-}
-
-/* 模糊遮罩：默认模糊译文，悬停清晰（语言学习自测） */
-tv-translation.tv-style-blur-mask .tv-tr-inner {
-  filter: blur(4px);
-  transition: filter 0.2s ease;
-  cursor: help;
-}
-tv-translation.tv-style-blur-mask:hover .tv-tr-inner {
-  filter: blur(0);
-}
-@media (prefers-reduced-motion: reduce) {
-  tv-translation.tv-style-blur-mask .tv-tr-inner { transition: none; }
 }
 
 /* ===== Alt+D 多引擎对比翻译窗 =====

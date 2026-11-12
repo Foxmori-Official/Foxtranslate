@@ -1,6 +1,7 @@
 /* Foxtranslate — 首次安装引导页样式（设计系统 tokens 版，居中卡片向导）。
    颜色/字阶/圆角/间距/阴影/动效全部来自 src/shared/ui/tokens.css，本地不再重定义。 */
 @import '../shared/ui/tokens.css';
+@import '../shared/ui/readingPreview.css';
 
 * {
   box-sizing: border-box;
@@ -17,9 +18,7 @@ body {
   font-size: var(--tv-fs-body);
   line-height: 1.6;
   color: var(--tv-text);
-  background:
-    radial-gradient(1200px 600px at 50% -10%, var(--tv-primary-soft), transparent 60%),
-    var(--tv-bg);
+  background: var(--tv-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -43,7 +42,6 @@ button {
   background: var(--tv-card);
   border: 1px solid var(--tv-border);
   border-radius: var(--tv-radius-lg);
-  box-shadow: var(--tv-shadow-lg);
   padding: var(--tv-space-5) var(--tv-space-6) var(--tv-space-6);
 }
 
@@ -59,7 +57,7 @@ button {
 .ob-brand {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: var(--tv-space-2);
 }
 
@@ -77,25 +75,33 @@ button {
 }
 
 .ob-progress {
-  display: flex;
-  gap: var(--tv-space-2);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .ob-progress-seg {
-  flex: 1;
-  height: 6px;
-  border-radius: var(--tv-radius-pill);
-  background: var(--tv-primary-soft);
-  transition: background var(--tv-motion-base);
-}
-
-.ob-progress-seg.is-done {
-  background: color-mix(in srgb, var(--tv-primary) 45%, var(--tv-primary-soft));
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--tv-border);
+  border-radius: var(--tv-radius-md);
+  background: var(--tv-card);
+  color: var(--tv-text-sub);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
 }
 
 .ob-progress-seg.is-active {
-  background: var(--tv-primary);
+  background: var(--tv-nav-selected);
+  border-color: var(--tv-border-strong);
+  color: var(--tv-primary-text);
+  font-weight: 650;
 }
+
+.ob-progress-seg.is-done { color: var(--tv-primary-text); }
+.ob-progress-seg:disabled { cursor: default; }
+.ob-content { min-width: 0; }
 
 /* ===== 步骤公共 ===== */
 
@@ -107,17 +113,15 @@ button {
 
 .ob-step-title {
   margin: 0;
-  font-size: var(--tv-fs-page-title);
+  font-size: var(--tv-fs-display);
   font-weight: 700;
   color: var(--tv-text);
-  text-align: center;
 }
 
 .ob-step-desc {
   margin: calc(-1 * var(--tv-space-2)) 0 0;
   font-size: var(--tv-fs-body);
   color: var(--tv-text-sub);
-  text-align: center;
 }
 
 /* ===== Step 1：设置项 ===== */
@@ -489,62 +493,25 @@ button {
   color: var(--tv-primary-text);
 }
 
-/* ===== 响应式 ===== */
-
-@media (max-width: 640px) {
-  .ob-card {
-    padding: var(--tv-space-4);
-  }
-
-  .ob-radio-group {
-    grid-template-columns: 1fr;
-  }
-
-  .ob-actions {
-    flex-direction: row;
-  }
-
-  .ob-actions .ob-btn {
-    width: 100%;
-  }
-
-  .ob-actions .ob-skip {
-    align-self: center;
-    width: auto;
-  }
-}
-
-/* Navigation stays beside the form at every viewport. */
-body { background: var(--tv-bg); }
-.ob-shell { display: block; padding: 0; }
-.ob-card { display: grid; grid-template-columns: 208px minmax(0, 1fr); min-height: 100vh; max-width: none; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: var(--tv-bg); }
-.ob-head { position: sticky; top: 0; height: 100vh; padding: 28px 18px; margin: 0; background: var(--tv-sidebar); border-inline-end: 1px solid var(--tv-border); overflow-y: auto; gap: 40px; }
-.ob-brand { flex-wrap: wrap; justify-content: flex-start; gap: 10px; }
-.ob-brand-name { font-size: 19px; letter-spacing: -0.02em; overflow-wrap: anywhere; }
-.ob-progress { flex-direction: column; gap: 10px; }
-.ob-progress-seg { flex: none; height: auto; padding: 12px; border: 0; border-radius: 8px; background: transparent; color: var(--tv-text-sub); font: inherit; text-align: left; cursor: pointer; }
-.ob-progress-seg.is-active { background: var(--tv-nav-selected); color: var(--tv-primary-text); font-weight: 650; }
-.ob-progress-seg.is-done { background: var(--tv-primary-soft); color: var(--tv-primary-text); }
-.ob-content { min-width: 0; width: 100%; max-width: 850px; padding: 48px clamp(16px, 4vw, 64px); }
-.ob-step-title, .ob-step-desc { text-align: left; }
-.ob-step-title { font-size: 28px; letter-spacing: -0.02em; }
-.ob-step { gap: 24px; }
-.ob-field { padding-block: 12px; }
-.ob-actions { flex-direction: row; flex-wrap: wrap; }
 .ob-save-status, .ob-service-hint { color: var(--tv-text-sub); font-size: 13px; }
 .ob-save-status { margin-top: 24px; }
 .ob-save-status.is-error { color: var(--tv-danger-text); }
 .ob-configure { color: var(--tv-primary-text); }
-.ob-engine.open .ob-engine-list { display: block; }
-@media (max-width: 760px) {
-  .ob-card { grid-template-columns: 112px minmax(0, 1fr); }
-  .ob-head { padding: 24px 8px; gap: 24px; }
-  .ob-brand-name { font-size: 14px; }
-  .ob-progress-seg { padding: 10px 6px; font-size: 12px; }
-  .ob-content { padding: 28px 16px; }
+.ob-language { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 22px; color: var(--tv-text-sub); font-size: 13px; }
+.ob-language .ob-select { width: min(180px, 65%); }
+.ob-toolbar-preview { border: 1px solid var(--tv-border); border-radius: 12px; background: var(--tv-card); overflow: hidden; }
+.ob-preview-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 10px 14px; background: var(--tv-primary-soft); }
+.ob-address { height: 8px; flex: 1; background: var(--tv-border-strong); border-radius: 6px; }
+.ob-preview-extension { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.ob-preview-name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.ob-toolbar-icon { width: 22px; height: 22px; flex: none; color: var(--tv-primary-text); }
+
+@media (max-width: 640px) {
+  .ob-shell { padding: 14px 12px 32px; }
+  .ob-card { padding: 16px; }
+  .ob-progress-seg { padding: 7px 6px; font-size: 12px; }
   .ob-step-title { font-size: 24px; }
-  .ob-actions { flex-direction: row; }
-  .ob-btn { width: auto; overflow-wrap: anywhere; white-space: normal; }
-  .ob-radio-group { flex-direction: column; }
+  .ob-radio-group { grid-template-columns: minmax(0, 1fr); }
+  .ob-actions { flex-wrap: wrap; }
+  .ob-btn { white-space: normal; overflow-wrap: anywhere; }
 }
-.ob-progress-seg { min-width: 0; overflow-wrap: anywhere; }

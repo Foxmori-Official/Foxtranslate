@@ -1,0 +1,61 @@
+/* 网页译文和扩展设置预览共用的译文样式 */
+tv-translation.tv-style-plain { color: inherit; }
+tv-translation.tv-style-soft-gray, tv-translation.tv-style-soft-gray .tv-tr-inner { color: #64748b; }
+tv-translation.tv-style-bold .tv-tr-inner { font-weight: 700; }
+tv-translation.tv-style-italic .tv-tr-inner { font-style: italic; }
+tv-translation.tv-style-underline-dotted .tv-tr-inner {
+  text-decoration: underline dotted rgba(64, 158, 255, 0.6);
+  text-underline-offset: 3px;
+}
+tv-translation.tv-style-highlight-yellow .tv-tr-inner {
+  background: rgba(250, 204, 21, 0.28);
+  padding: 0 2px;
+  border-radius: 6px;
+}
+tv-translation.tv-style-highlight-green .tv-tr-inner {
+  background: rgba(74, 222, 128, 0.22);
+  padding: 0 2px;
+  border-radius: 6px;
+}
+tv-translation.tv-style-card {
+  background: rgba(64, 158, 255, 0.08);
+  border: 1px solid rgba(64, 158, 255, 0.35);
+  border-radius: 10px;
+  padding: 0.5em 0.75em;
+}
+tv-translation.tv-style-rounded .tv-tr-inner {
+  background: rgba(100, 116, 139, 0.1);
+  border-radius: 999px;
+  padding: 0.1em 0.7em;
+}
+tv-translation.tv-style-quote {
+  border-left: 3px solid #409eff;
+  padding-left: 0.7em;
+  color: #4b5563;
+}
+tv-translation.tv-style-gradient .tv-tr-inner {
+  background: linear-gradient(120deg, rgba(64, 158, 255, 0.12), rgba(121, 187, 255, 0.12));
+  border-radius: 6px;
+  padding: 0 3px;
+}
+tv-translation.tv-style-frosted .tv-tr-inner {
+  background: rgba(148, 163, 184, 0.14);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 6px;
+  padding: 0.1em 0.4em;
+}
+
+/* 模糊遮罩：默认模糊译文，悬停清晰（语言学习自测） */
+tv-translation.tv-style-blur-mask .tv-tr-inner {
+  filter: blur(4px);
+  transition: filter 0.2s ease;
+  cursor: help;
+}
+tv-translation.tv-style-blur-mask:hover .tv-tr-inner,
+tv-translation.tv-style-blur-mask:focus .tv-tr-inner {
+  filter: blur(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  tv-translation.tv-style-blur-mask .tv-tr-inner { transition: none; }
+}

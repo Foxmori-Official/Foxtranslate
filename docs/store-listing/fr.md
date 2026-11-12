@@ -35,7 +35,8 @@ Lisez les pages étrangères comme votre langue maternelle. Foxtranslate affiche
 
 🔒 CONFIDENTIALITÉ
 
-Aucun compte, aucune télémétrie, aucun serveur intermédiaire. Clés API, glossaires et cartes restent dans le stockage local du navigateur. Le masquage s'effectue sur votre appareil : le contenu sensible ne quitte jamais votre navigateur.
+Les moteurs gratuits fonctionnent sans connexion. L’extension ne contient aucune télémétrie. Les réglages, les clés et le vocabulaire sont stockés localement. Les fonctions de traduction et d’IA envoient du texte aux services concernés. Le masquage facultatif couvre les motifs reconnus dans le processus de traduction.
+https://github.com/Foxmori-Official/Foxtranslate/blob/main/PRIVACY.md
 
 💬 ASSISTANCE
 

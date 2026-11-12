@@ -21,6 +21,40 @@ export interface CustomGlossaryLibrary {
   terms: GlossaryTerm[]
 }
 
+export interface SubtitleTextStyle {
+  size: number
+  color: string
+  font: string
+  weight: number
+}
+
+export interface SubtitlePreferences {
+  enabled: boolean
+  youtube: boolean
+  meet: boolean
+  showShortcut: boolean
+  displayMode: 'bilingual' | 'translationOnly'
+  translationPosition: 'above' | 'below'
+  backgroundColor: string
+  backgroundOpacity: number
+  edgeStyle: 'shadow' | 'outline' | 'none'
+  original: SubtitleTextStyle
+  translation: SubtitleTextStyle
+}
+
+export type SubtitlePatch = Partial<Omit<SubtitlePreferences, 'original' | 'translation'>> & {
+  original?: Partial<SubtitleTextStyle>
+  translation?: Partial<SubtitleTextStyle>
+}
+
+export function mergeSubtitlePreferences(current: SubtitlePreferences, patch: SubtitlePatch): SubtitlePreferences {
+  return {
+    ...current, ...patch,
+    original: { ...current.original, ...patch.original },
+    translation: { ...current.translation, ...patch.translation },
+  }
+}
+
 export interface Config {
   version: 1
   general: {
@@ -41,13 +75,13 @@ export interface Config {
       gemini: string
       libreUrl: string
       customHeadersJson: string
-      aimao: string
+      foxmori: string
     }
     openai: { endpoint: string; model: string }
     deepseek: { endpoint: string; model: string }
     claude: { model: string }
     gemini: { model: string }
-    aimao: { model: string }
+    foxmori: { model: string }
     customEngines: CustomEngine[]
     custom: { url: string; bodyJson: string }
     timeoutMs: number
@@ -70,7 +104,7 @@ export interface Config {
   /** 术语库：内置库开关（id→enabled，库数据打包在 public/glossary/）+ 自定义库 */
   glossaryLibs: { enabled: Record<string, boolean>; custom: CustomGlossaryLibrary[] }
   writing: { enabled: boolean }
-  subtitles: { enabled: boolean; youtube: boolean; meet: boolean }
+  subtitles: SubtitlePreferences
   learning: { enabled: boolean; highlightOnPage: boolean }
   floatingBall: { enabled: boolean }
   /** TTS 朗读参数 */
@@ -80,7 +114,7 @@ export interface Config {
   /** Alt+D 对比窗要同时调用的引擎 id 列表 */
   compareEngines: string[]
   /** 可自定义快捷键（如 'Alt+T'；空串=禁用） */
-  hotkeys: { togglePage: string; compare: string; openOptions: string }
+  hotkeys: { togglePage: string; compare: string; openOptions: string; toggleSubtitles: string }
   /** 界面显示语言（与翻译目标语言无关）；auto=跟随系统 */
   uiLang: string
   /** 首次安装引导是否已完成 */
@@ -100,12 +134,12 @@ export const DEFAULT_CONFIG: Config = {
   },
   engine: {
     provider: 'google',
-    keys: { deepl: '', openai: '', claude: '', gemini: '', libreUrl: '', customHeadersJson: '', aimao: '' },
+    keys: { deepl: '', openai: '', claude: '', gemini: '', libreUrl: '', customHeadersJson: '', foxmori: '' },
     openai: { endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
     deepseek: { endpoint: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
     claude: { model: 'claude-haiku-4-5-20251001' },
     gemini: { model: 'gemini-2.5-flash' },
-    aimao: { model: 'DeepSeek-V4-Flash' },
+    foxmori: { model: '' },
     customEngines: [],
     custom: { url: '', bodyJson: '{"text":"{{text}}","from":"{{from}}","to":"{{to}}"}' },
     timeoutMs: 20000,
@@ -120,13 +154,19 @@ export const DEFAULT_CONFIG: Config = {
   experts: { activeId: 'general', list: BUILTIN_EXPERTS },
   glossaryLibs: { enabled: {}, custom: [] },
   writing: { enabled: true },
-  subtitles: { enabled: true, youtube: true, meet: true },
+  subtitles: {
+    enabled: true, youtube: true, meet: true, showShortcut: true,
+    displayMode: 'bilingual', translationPosition: 'below',
+    backgroundColor: '#000000', backgroundOpacity: 75, edgeStyle: 'shadow',
+    original: { size: 100, color: '#ffffff', font: 'default', weight: 400 },
+    translation: { size: 100, color: '#ffffff', font: 'default', weight: 400 },
+  },
   learning: { enabled: true, highlightOnPage: false },
   floatingBall: { enabled: true },
   tts: { rate: 1, pitch: 1, volume: 1 },
   contextAware: { enabled: false },
   compareEngines: ['google', 'bing'],
-  hotkeys: { togglePage: 'Alt+T', compare: 'Alt+D', openOptions: 'Alt+O' },
+  hotkeys: { togglePage: 'Alt+T', compare: 'Alt+D', openOptions: 'Alt+O', toggleSubtitles: 'Alt+S' },
   uiLang: 'auto',
   onboardingCompleted: false,
   stats: { translatedChars: 0 },
@@ -154,5 +194,30 @@ function merge<T>(defaults: T, raw: unknown): T {
 
 /** 读时归一化：脏 key 丢弃、缺失 key 补默认、类型不符回退默认。 */
 export function normalizeConfig(raw: unknown): Config {
-  return merge(DEFAULT_CONFIG, isObj(raw) ? raw : {})
+  const stored = isObj(raw) ? raw : {}
+  const config = merge(DEFAULT_CONFIG, stored)
+  const storedLibraries = stored.glossaryLibs
+  // Library IDs are dynamic, so the default shape cannot enumerate their switches.
+  if (isObj(storedLibraries) && isObj(storedLibraries.enabled)) {
+    const enabled = Object.entries(storedLibraries.enabled).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean')
+    config.glossaryLibs.enabled = Object.fromEntries(enabled)
+  }
+  // A removed provider's credentials must never be sent to the replacement service.
+  if (config.engine.provider === 'aimao') config.engine.provider = 'foxmori'
+  config.compareEngines = config.compareEngines.filter(id => id !== 'aimao')
+  const sub = config.subtitles
+  sub.displayMode = sub.displayMode === 'translationOnly' ? 'translationOnly' : 'bilingual'
+  sub.translationPosition = sub.translationPosition === 'above' ? 'above' : 'below'
+  sub.edgeStyle = ['shadow', 'outline', 'none'].includes(sub.edgeStyle) ? sub.edgeStyle : 'shadow'
+  const bounded = (n: number, min: number, max: number, fallback: number) => Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
+  const color = (s: string, fallback: string) => /^#[0-9a-f]{6}$/i.test(s) ? s : fallback
+  sub.backgroundOpacity = bounded(sub.backgroundOpacity, 0, 100, 75)
+  sub.backgroundColor = color(sub.backgroundColor, '#000000')
+  for (const text of [sub.original, sub.translation]) {
+    text.size = bounded(text.size, 50, 200, 100)
+    text.weight = bounded(text.weight, 300, 800, 400)
+    text.color = color(text.color, '#ffffff')
+    if (!['default', 'sans-serif', 'serif', 'monospace'].includes(text.font)) text.font = 'default'
+  }
+  return config
 }

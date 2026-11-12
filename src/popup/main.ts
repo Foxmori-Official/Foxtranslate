@@ -1,4 +1,5 @@
-import { appSidebar } from '../shared/appShell'
+import { appNavigation } from '../shared/appShell'
+import { featureCopy } from '../shared/featureCopy'
 import { uiCopy } from '../shared/interface'
 import { bindListbox } from '../shared/listbox'
 /**
@@ -24,7 +25,7 @@ import type {
   PageStateResult,
   StatsResult,
 } from '../shared/protocol'
-import { BUILTIN_ENGINES, engineName } from '../shared/engines'
+import { BUILTIN_ENGINES, engineName, isAiProvider } from '../shared/engines'
 import { styleName, expertName, previewGlyph } from '../shared/uiLabels'
 
 // ===== 消息封装 =====
@@ -98,7 +99,7 @@ export interface EngineOption {
 
 /** 引擎图标文件映射（构建后位于 dist/engine-icons/，引用走 chrome.runtime.getURL） */
 export const ENGINE_ICON_FILES: Record<string, string> = {
-  aimao: 'engine-icons/aimao.png',
+  foxmori: 'icons/icon48.png',
   google: 'engine-icons/google.svg',
   bing: 'engine-icons/bing.svg',
   mymemory: 'engine-icons/mymemory.png',
@@ -117,7 +118,7 @@ export function engineIconFor(id: string): string {
   return ENGINE_ICON_FILES[id] ?? ENGINE_ICON_FILES.custom
 }
 
-/** 引擎下拉选项：AI猫第一 + 内置引擎 + config.engine.customEngines（id 为 custom:<entryId>） */
+/** 引擎下拉选项：Foxmori第一 + 内置引擎 + config.engine.customEngines（id 为 custom:<entryId>） */
 export function getEngineOptions(cfg: Config): EngineOption[] {
   const options: EngineOption[] = BUILTIN_ENGINES.map((e) => ({ id: e.id, name: engineName(e, resolveUiLang(cfg.uiLang)), icon: engineIconFor(e.id) }))
   for (const entry of cfg.engine.customEngines) {
@@ -157,6 +158,7 @@ const SWATCH_CSS: Record<string, Record<string, string>> = {
   quote: { background: '#ecf5ff', 'border-left': '3px solid #409eff', color: '#409eff' },
   gradient: { background: 'linear-gradient(135deg,#60a5fa,#a78bfa)', color: '#ffffff' },
   frosted: { background: 'rgba(64,158,255,.22)', 'backdrop-filter': 'blur(2px)', color: '#4338ca' },
+  'blur-mask': { filter: 'blur(1.5px)', color: 'var(--tv-primary-text)' },
 }
 
 function makeSwatch(styleId: string): HTMLSpanElement {
@@ -181,7 +183,8 @@ let pageStatus: PageStatus = 'loading'
 let statusDot: HTMLSpanElement
 let statusText: HTMLParagraphElement
 let mainBtn: HTMLButtonElement
-let statsText: HTMLSpanElement
+let reviewLink: HTMLAnchorElement | null
+let dueBadge: HTMLSpanElement
 
 // ===== 配置更新 =====
 
@@ -193,7 +196,21 @@ async function patchConfig(patch: Partial<Config>, syncToTab: boolean): Promise<
 // ===== 头部 =====
 
 function buildHeader(root: HTMLElement): void {
-  root.append(appSidebar('page', config.uiLang))
+  const header = el('header', 'popup-header')
+  const brand = el('div', 'popup-brand')
+  const logo = el('img')
+  logo.src = chrome.runtime.getURL('icons/icon48.png')
+  logo.alt = ''
+  logo.width = logo.height = 26
+  brand.append(logo, el('span', '', 'Foxtranslate'))
+  const nav = appNavigation(null, config.uiLang, true)
+  reviewLink = nav.querySelector('[data-destination="review"]')
+  dueBadge = el('span', 'due-badge')
+  dueBadge.hidden = true
+  dueBadge.setAttribute('aria-hidden', 'true')
+  reviewLink?.append(dueBadge)
+  header.append(brand, nav)
+  root.append(header)
 }
 
 // ===== 状态区 =====
@@ -532,38 +549,31 @@ function buildExpertSelect(): HTMLElement {
   return wrap
 }
 
-/** 开关行（悬停翻译 / 划词翻译 / 悬浮球 / 站点规则） */
-function buildSwitchRow(
+function buildQuickSwitch(
   label: string,
   on: boolean,
-  onChange: (v: boolean) => void,
-  key?: string,
-): HTMLElement {
-  const row = el('div', 'row')
-  if (key) row.dataset.row = key
-  row.append(el('span', 'row-label', label))
-
-  const sw = el('button', 'switch')
+  onChange: (v: boolean) => Promise<void>,
+): HTMLButtonElement {
+  const sw = el('button', 'quick-switch')
   sw.type = 'button'
   sw.setAttribute('role', 'switch')
-  sw.setAttribute('aria-label', label)
-  sw.append(el('span', 'knob'))
-
-  const set = (v: boolean): void => {
-    sw.classList.toggle('on', v)
-    sw.setAttribute('aria-checked', String(v))
-  }
-  set(on)
-
-  sw.addEventListener('click', () => {
-    if (sw.hasAttribute('disabled')) return
-    const next = !sw.classList.contains('on')
-    set(next)
-    onChange(next)
+  sw.setAttribute('aria-checked', String(on))
+  const indicator = el('span', 'quick-switch-track')
+  indicator.setAttribute('aria-hidden', 'true')
+  sw.append(indicator, el('span', 'quick-switch-label', label))
+  sw.addEventListener('click', async () => {
+    sw.disabled = true
+    try {
+      const next = sw.getAttribute('aria-checked') !== 'true'
+      await onChange(next)
+      sw.setAttribute('aria-checked', String(next))
+    } catch {
+      statusText.textContent = uiCopy('saveFailed', config.uiLang)
+    } finally {
+      sw.disabled = false
+    }
   })
-
-  row.append(sw)
-  return row
+  return sw
 }
 
 // ===== 当前网站规则（总是翻译 / 永不翻译） =====
@@ -605,7 +615,7 @@ async function setSitePolicy(value: string): Promise<void> {
 
 function updateExpertVisibility(): void {
   const row = document.querySelector<HTMLElement>('[data-row="expert"]')
-  if (row) row.hidden = !(['aimao', 'openai', 'deepseek', 'claude', 'gemini'].includes(config.engine.provider) || config.engine.provider.startsWith('custom:'))
+  if (row) row.hidden = !isAiProvider(config.engine.provider)
 }
 
 function buildControls(root: HTMLElement): void {
@@ -615,7 +625,7 @@ function buildControls(root: HTMLElement): void {
   // 1. 语言对：源语言 → 目标语言（双下拉并排）
   section.append(buildLangPairRow())
 
-  // 2. 翻译引擎（自定义下拉 + 16px 图标，AI猫置顶）
+  // 2. 翻译引擎（自定义下拉 + 16px 图标，Foxmori置顶）
   section.append(buildRow(t('popup.engine', ui, '翻译引擎'), buildEngineSelect(), 'engine'))
 
   // 3. AI 专家（自定义下拉，仅 AI 引擎生效）
@@ -646,32 +656,24 @@ function buildControls(root: HTMLElement): void {
   section.append(buildRow(t('popup.style', ui, '译文样式'), buildStyleSelect(), 'style'))
 
   // 6-8. 开关：悬停翻译 / 划词翻译 / 悬浮球
-  const gestures = el('details', 'quick-interactions')
-  gestures.append(el('summary', '', uiCopy('gestures', config.uiLang)))
+  const gestures = el('div', 'quick-interactions')
+  gestures.setAttribute('role', 'group')
+  gestures.setAttribute('aria-label', uiCopy('gestures', config.uiLang))
   gestures.append(
-    buildSwitchRow(
+    buildQuickSwitch(
       t('popup.hover', ui, '悬停翻译'),
       config.hover.enabled,
-      (on) => {
-        void patchConfig({ hover: { ...config.hover, enabled: on } }, false).catch(ignore)
-      },
-      'hover',
+      on => patchConfig({ hover: { ...config.hover, enabled: on } }, false),
     ),
-    buildSwitchRow(
+    buildQuickSwitch(
       t('popup.selection', ui, '划词翻译'),
       config.selection.enabled,
-      (on) => {
-        void patchConfig({ selection: { ...config.selection, enabled: on } }, false).catch(ignore)
-      },
-      'selection',
+      on => patchConfig({ selection: { ...config.selection, enabled: on } }, false),
     ),
-    buildSwitchRow(
+    buildQuickSwitch(
       t('popup.floatingBall', ui, '悬浮球'),
       config.floatingBall.enabled,
-      (on) => {
-        void patchConfig({ floatingBall: { enabled: on } }, false).catch(ignore)
-      },
-      'floatingBall',
+      on => patchConfig({ floatingBall: { enabled: on } }, false),
     ),
   )
 
@@ -697,19 +699,29 @@ function buildControls(root: HTMLElement): void {
 // ===== 底部 =====
 
 function buildFooter(root: HTMLElement): void {
-  statsText = el('p', 'stats-text', t('popup.statsEmpty', resolveUiLang(config.uiLang), '生词 — · 到期 —'))
-  root.querySelector('.fox-sidebar')?.insertBefore(statsText, root.querySelector('.fox-help'))
+  const footer = el('footer', 'popup-footer')
+  const guide = el('a', '', uiCopy('guide', config.uiLang))
+  guide.href = chrome.runtime.getURL('onboarding.html')
+  guide.target = '_blank'
+  guide.rel = 'noopener noreferrer'
+  footer.append(guide)
+  root.append(footer)
 }
 
 async function refreshStats(): Promise<void> {
   try {
     const s = await sendBg<StatsResult>({ kind: 'getStats' })
-    statsText.textContent = fmt(t('popup.stats', config.uiLang, '生词 {w} · 到期 {d}'), {
+    const stats = fmt(t('popup.stats', config.uiLang, '生词 {w} · 到期 {d}'), {
       w: s.totalWords,
       d: s.dueCount,
     })
+    const label = `${uiCopy('review', config.uiLang)} · ${stats}`
+    reviewLink?.setAttribute('aria-label', label)
+    reviewLink?.setAttribute('title', label)
+    dueBadge.textContent = s.dueCount > 99 ? '99+' : String(s.dueCount)
+    dueBadge.hidden = s.dueCount === 0
   } catch {
-    statsText.textContent = t('popup.statsEmpty', config.uiLang, '生词 — · 到期 —')
+    dueBadge.hidden = true
   }
 }
 
@@ -729,10 +741,15 @@ export async function init(): Promise<void> {
 
   document.documentElement.lang = resolveUiLang(config.uiLang)
   app.replaceChildren()
-  app.className = 'fox-shell'
   buildHeader(app)
   const main = el('main', 'popup-main')
-  main.append(el('h1', 'page-heading', uiCopy('page', config.uiLang)))
+  const heading = el('div', 'popup-heading')
+  const account = el('a', 'popup-account-link', featureCopy('account', config.uiLang))
+  account.href = chrome.runtime.getURL('options.html#account')
+  account.target = '_blank'
+  account.rel = 'noopener noreferrer'
+  heading.append(el('h1', 'page-heading', uiCopy('page', config.uiLang)), account)
+  main.append(heading)
   buildStatus(main)
   buildControls(main)
   app.append(main)

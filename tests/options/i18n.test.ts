@@ -103,8 +103,8 @@ const EXPECTED_KEYS = [
   "cmp.engine.bing",
   "cmp.engine.openai",
   "cmp.engine.custom",
-  "engine.aimao",
-  "engine.aimaoDesc",
+  "engine.foxmori",
+  "engine.foxmoriDesc",
   "engine.google",
   "engine.googleDesc",
   "engine.bing",
@@ -124,7 +124,7 @@ const EXPECTED_KEYS = [
   "engine.libretranslate",
   "engine.libretranslateDesc",
   "engine.getApiKey",
-  "engine.aimaoKeyPh",
+  "engine.foxmoriKeyPh",
   "opt.s1",
   "opt.s2",
   "opt.s3",
@@ -774,9 +774,9 @@ function navLabels(): string[] {
 }
 
 function cardTitles(): string[] {
-  return Array.from(
-    document.querySelectorAll(".content > .card > .card-title"),
-  ).map((h) => h.textContent ?? "");
+  return Array.from(document.querySelectorAll(".content > .card"),
+    (card) => card.querySelector(".card-title")?.textContent ?? "",
+  );
 }
 
 describe("通用页界面语言下拉", () => {
@@ -829,12 +829,14 @@ describe("通用页界面语言下拉", () => {
 
     expect(stored.uiLang).toBe("de");
     expect(navLabels()[0]).toBe("Allgemein");
-    expect(navLabels()[1]).toBe("Engines");
+    expect(navLabels()[1]).toBe("Foxmori account");
+    expect(navLabels()[2]).toBe("Engines");
     expect(qs<HTMLElement>(".page-title").textContent).toBe("Allgemein");
     expect(qs<HTMLElement>(".page-desc").textContent).toBe(
       "Sprache, Anzeigemodus sowie Website- und Sprachlisten",
     );
     expect(cardTitles()).toEqual([
+      "Foxmori account",
       "Sprachen",
       "Anzeigemodus",
       "Diese Websites immer übersetzen",
@@ -864,8 +866,7 @@ describe("通用页界面语言下拉", () => {
     expect(stored.uiLang).toBe("ja");
     expect(navLabels()[0]).toBe("一般");
     expect(qs<HTMLElement>(".page-title").textContent).toBe("一般");
-    expect(cardTitles()[0]).toBe("Languages");
-    expect(cardTitles()[1]).toBe("表示モード");
+    expect(cardTitles().slice(0, 3)).toEqual(["Foxmori account", "Languages", "表示モード"]);
   });
 
   it("auto 跟随浏览器：浏览器 en-US 时按英文渲染", async () => {

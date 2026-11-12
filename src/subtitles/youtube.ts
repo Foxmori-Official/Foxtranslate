@@ -1,4 +1,8 @@
-import { normalizeConfig } from '../shared/config'
+import { DEFAULT_CONFIG, normalizeConfig, type SubtitlePatch, type SubtitlePreferences } from '../shared/config'
+import { matchHotkey } from '../shared/hotkeys'
+import { featureCopy } from '../shared/featureCopy'
+import { downloadSubtitles } from './subtitleDownload'
+import type { BgResponse } from '../shared/protocol'
 import { PlayerControl, type PlayerState } from './playerControl'
 // YouTube 双语字幕主编排：配置开关 → SPA 导航 → 获取 → 前瞻翻译调度 → 渲染
 import { getSubtitlesConfig, translateText, type SubtitleCue } from './types'
@@ -36,47 +40,78 @@ let session: Session | null = null
 let navPollTimer: number | null = null
 let uiLang = 'auto'
 let playerState: PlayerState = 'off'
-const control = new PlayerControl(async () => {
-  const config = await getSubtitlesConfig()
-  if (!config) throw new Error('Configuration unavailable')
-  const next = !enabled
-  const response = await chrome.runtime.sendMessage({
-    kind: 'setConfig',
-    patch: { subtitles: { ...config.subtitles, enabled: next || config.subtitles.enabled, youtube: next } },
-  })
-  if (!response?.ok) throw new Error(response?.error || 'Save failed')
-  applyConfiguration(response.data)
+let preferences = DEFAULT_CONFIG.subtitles
+let hotkey = DEFAULT_CONFIG.hotkeys.toggleSubtitles
+let videoOverride: { id: string; enabled: boolean } | null = null
+let activeVideoId: string | null = null
+let navigationRevision = 0
+
+const control = new PlayerControl({
+  save: savePreferences,
+  toggleForVideo: () => setVideoOverride(!enabled),
+  stopForVideo: () => setVideoOverride(false),
+  preview: next => session?.renderer?.setPreferences(next),
+  openSettings: async () => {
+    const result = await chrome.runtime.sendMessage({ kind: 'command', cmd: 'openVideoOptions' }) as BgResponse
+    if (!result?.ok) throw new Error(result?.error || 'Could not open settings')
+  },
+  download: async (mode, progress) => {
+    const videoId = currentVideoId()
+    const revision = navigationRevision
+    const language = targetLang
+    const translationAbove = preferences.translationPosition === 'above'
+    if (!videoId) throw new Error(featureCopy('noTrack', uiLang))
+    const cues = session?.videoId === videoId && session.cues.length ? session.cues : await fetchYouTubeCues(videoId)
+    await downloadSubtitles({
+      cues: cues ?? [], videoId, targetLang: language, uiLang, mode, translationAbove, progress,
+      isCurrent: () => revision === navigationRevision && currentVideoId() === videoId && targetLang === language,
+    })
+  },
 })
 
 function updateControl(state: PlayerState): void {
   playerState = state
-  control.update(enabled, state, uiLang)
+  control.update({ enabled, state, lang: uiLang, preferences, hotkey })
 }
 
 function mountControl(): void {
   const player = document.querySelector<HTMLElement>('#movie_player')
-  if (currentVideoId() && player) control.mount(player)
+  if (currentVideoId() && player && preferences.showShortcut) control.mount(player)
   else control.destroy()
+}
+
+function setVideoOverride(value: boolean): void {
+  const id = currentVideoId()
+  if (!id) return
+  videoOverride = { id, enabled: value }
+  onNavigate()
+}
+
+function applyPreferences(next: SubtitlePreferences): void {
+  if (preferences.enabled !== next.enabled || preferences.youtube !== next.youtube) videoOverride = null
+  preferences = next
+  session?.renderer?.setPreferences(preferences)
+  onNavigate()
+}
+
+async function savePreferences(patch: SubtitlePatch): Promise<void> {
+  const result = await chrome.runtime.sendMessage({ kind: 'setSubtitlePreferences', patch }) as BgResponse<SubtitlePreferences>
+  if (!result?.ok) throw new Error(result?.error || 'Save failed')
+  if (patch.youtube !== undefined || patch.enabled !== undefined) videoOverride = null
+  applyPreferences(result.data)
 }
 
 function applyConfiguration(raw: unknown): void {
   const config = normalizeConfig(raw)
-  const nextEnabled = config.subtitles.enabled && config.subtitles.youtube
-  const changed = nextEnabled !== enabled || config.general.targetLang !== targetLang
-  enabled = nextEnabled
-  targetLang = config.general.targetLang
-  uiLang = config.uiLang
-  if (changed) {
+  if (config.general.targetLang !== targetLang) {
+    targetLang = config.general.targetLang
     teardownSession()
-    if (enabled) onNavigate()
-    else updateControl('off')
-  } else {
-    control.update(enabled, playerState, uiLang)
   }
+  uiLang = config.uiLang
+  hotkey = config.hotkeys.toggleSubtitles
+  applyPreferences(config.subtitles)
 }
 
-
-/** 入口：由 subtitles/index.ts 在 youtube.com 页面调用 */
 export function startYouTube(): void {
   if (booted) return
   booted = true
@@ -87,13 +122,21 @@ async function bootstrap(): Promise<void> {
   const config = await getSubtitlesConfig()
   if (config) applyConfiguration(config)
   else updateControl('error')
-  watchConfigChanges()
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes['tv:config_v1']) applyConfiguration(changes['tv:config_v1'].newValue)
+  })
   window.addEventListener('yt-navigate-finish', onNavigate)
   document.addEventListener('yt-navigate-start', onNavigateStart)
-  navPollTimer = window.setInterval(pollVideoIdChange, NAV_POLL_MS)
-  mountControl()
-  if (enabled) onNavigate()
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.repeat || event.isComposing || !currentVideoId()) return
+    if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return
+    if (!matchHotkey(event, hotkey)) return
+    event.preventDefault()
+    setVideoOverride(!enabled)
+  })
+  navPollTimer = window.setInterval(onNavigate, NAV_POLL_MS)
   window.addEventListener('pagehide', () => {
+    navigationRevision++
     teardownSession()
     control.destroy()
     if (navPollTimer !== null) window.clearInterval(navPollTimer)
@@ -101,43 +144,43 @@ async function bootstrap(): Promise<void> {
   })
   window.addEventListener('pageshow', event => {
     if (!event.persisted) return
-    if (navPollTimer === null) navPollTimer = window.setInterval(pollVideoIdChange, NAV_POLL_MS)
-    mountControl()
-    if (enabled) onNavigate()
+    if (navPollTimer === null) navPollTimer = window.setInterval(onNavigate, NAV_POLL_MS)
+    onNavigate()
   })
 }
-
-// ===== 配置热开关 =====
-
-function watchConfigChanges(): void {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes['tv:config_v1']) applyConfiguration(changes['tv:config_v1'].newValue)
-  })
-}
-
-// ===== SPA 导航 =====
 
 function currentVideoId(): string | null {
-  if (location.pathname === '/watch') {
-    return new URLSearchParams(location.search).get('v')
-  }
-  return null
+  if (location.pathname !== '/watch') return null
+  return new URLSearchParams(location.search).get('v')
 }
 
 function onNavigateStart(): void {
-  // 离开旧视频：作废旧会话（sessionId 递增使在途回调失效）
+  navigationRevision++
   teardownSession()
+  control.resetForVideo()
 }
 
 function onNavigate(): void {
-  mountControl()
-  if (!enabled) return
   const videoId = currentVideoId()
-  if (!videoId) {
+  if (videoId !== activeVideoId) {
+    activeVideoId = videoId
+    navigationRevision++
+    if (videoOverride?.id !== videoId) videoOverride = null
     teardownSession()
+    control.resetForVideo()
+  }
+  enabled = Boolean(videoId && (videoOverride?.enabled ?? (preferences.enabled && preferences.youtube)))
+  mountControl()
+  if (!enabled || !videoId) {
+    teardownSession()
+    updateControl('off')
     return
   }
-  if (session && session.videoId === videoId && !session.disposed) return
+  if (session?.video && !session.video.isConnected) teardownSession()
+  if (session && session.videoId === videoId && !session.disposed) {
+    updateControl(playerState)
+    return
+  }
   teardownSession()
   const s: Session = {
     id: ++sessionSeq,
@@ -157,18 +200,6 @@ function onNavigate(): void {
   void loadSession(s).catch(() => {
     if (!s.disposed && session === s) updateControl('error')
   })
-}
-
-function pollVideoIdChange(): void {
-  mountControl()
-  if (session?.video && !session.video.isConnected) teardownSession()
-  if (!enabled) return
-  const videoId = currentVideoId()
-  if (!videoId) {
-    if (session) teardownSession()
-    return
-  }
-  if (!session || session.videoId !== videoId || session.disposed) onNavigate()
 }
 
 function teardownSession(): void {
@@ -191,6 +222,7 @@ async function loadSession(s: Session): Promise<void> {
   }
   if (s.disposed || session?.id !== s.id) return
   const [player, video] = found
+  s.video = video
 
   const cues = await fetchYouTubeCues(s.videoId)
   if (s.disposed || session?.id !== s.id) return
@@ -202,9 +234,9 @@ async function loadSession(s: Session): Promise<void> {
   s.cues = cues
   const renderer = new YouTubeRenderer()
   renderer.mount(player, video)
+  renderer.setPreferences(preferences)
   renderer.setCues(cues)
   s.renderer = renderer
-  s.video = video
   updateControl('ready')
   attachVideoListeners(s)
   translationTick(s)
@@ -342,6 +374,7 @@ function translationTick(s: Session): void {
         s.translatedStarts.add(key)
         s.failedAt.delete(key)
         s.renderer?.updateCue(cue)
+        if (!s.failedAt.size && playerState === 'error') updateControl('ready')
       } catch {
         if (s.disposed || session?.id !== s.id) return
         updateControl('error')

@@ -36,7 +36,8 @@ Lesen Sie fremdsprachige Seiten so entspannt wie Ihre Muttersprache. Foxtranslat
 
 🔒 PRIVACY
 
-Einstellungen, API-Schlüssel und Vokabeln bleiben im lokalen Speicher des Browsers; Telemetrie gibt es nicht. Bei aktiver Maskierung verlassen persönliche Daten Ihr Gerät nicht im Klartext. Texte gehen nur an die gewählte Engine.
+Kostenlose Übersetzungsdienste funktionieren ohne Anmeldung. Die Erweiterung enthält keine Telemetrie. Einstellungen, Schlüssel und Vokabeln werden lokal gespeichert. Übersetzungs- und KI-Funktionen senden Text an die jeweiligen Dienste. Die optionale Maskierung erfasst erkannte Muster im Übersetzungsablauf.
+https://github.com/Foxmori-Official/Foxtranslate/blob/main/PRIVACY.md
 
 💬 SUPPORT
 

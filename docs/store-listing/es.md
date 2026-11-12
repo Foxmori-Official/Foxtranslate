@@ -35,7 +35,8 @@ Lee páginas en otros idiomas como si fueran tu lengua materna. Foxtranslate mue
 
 🔒 PRIVACIDAD
 
-Sin cuenta, sin telemetría y sin servidores intermedios. Las claves API, los glosarios y las tarjetas se guardan solo en el almacenamiento local. El enmascaramiento se ejecuta en tu dispositivo: el contenido sensible nunca sale del navegador.
+Los motores gratuitos funcionan sin iniciar sesión. La extensión no incluye telemetría. Los ajustes, las claves y el vocabulario se guardan en el navegador. Las funciones de traducción e IA envían texto a los servicios correspondientes. El enmascaramiento opcional cubre los patrones que se reconocen durante la traducción.
+https://github.com/Foxmori-Official/Foxtranslate/blob/main/PRIVACY.md
 
 💬 ASISTENCIA
 

@@ -18,9 +18,7 @@ body {
   font-size: var(--tv-fs-body);
   line-height: 1.6;
   color: var(--tv-text);
-  background:
-    radial-gradient(1200px 600px at 50% -10%, var(--tv-primary-soft), transparent 60%),
-    var(--tv-bg);
+  background: var(--tv-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -30,6 +28,8 @@ button {
 
 #app {
   min-height: 100vh;
+  max-width: var(--tv-workspace-max);
+  margin-inline: auto;
   display: flex;
   flex-direction: column;
 }
@@ -37,34 +37,31 @@ button {
 /* ===== 顶部栏：进度 + 结束复习 ===== */
 
 .topbar {
-  display: flex;
-  align-items: center;
-  gap: var(--tv-space-4);
-  padding: var(--tv-space-3) var(--tv-space-5);
+  display: grid;
+  gap: 10px;
+  padding: 12px 24px;
   background: var(--tv-card);
   border-bottom: 1px solid var(--tv-border);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+}
+
+.review-heading, .review-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--tv-space-2);
-  font-weight: 600;
+  gap: 8px;
   font-size: var(--tv-fs-body);
-  color: var(--tv-primary-text); /* 文字级蓝，AA 5.9:1（原 #337ecc 4.20:1） */
-  white-space: nowrap;
+  font-weight: 650;
+  color: var(--tv-primary-text);
+  overflow-wrap: anywhere;
 }
 
-.brand-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: var(--tv-radius-pill);
-  background: var(--tv-primary);
-  box-shadow: 0 0 0 4px var(--tv-primary-soft);
-}
+.brand img { flex: none; }
 
 .progress-area {
   flex: 1;
@@ -484,7 +481,7 @@ button {
   }
 
   .brand span.brand-name {
-    display: none;
+    font-size: 13px;
   }
 
   .card-face {
@@ -500,28 +497,11 @@ button {
   }
 
   .grades {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--tv-space-2);
   }
 
   .g-label {
     font-size: var(--tv-fs-sub);
   }
-}
-
-#app { display: grid; grid-template-columns: 208px minmax(0, 1fr); background: var(--tv-bg); }
-.topbar { height: 100vh; padding: 28px 18px; flex-direction: column; align-items: stretch; gap: 32px; background: var(--tv-sidebar); border-bottom: 0; border-inline-end: 1px solid var(--tv-border); overflow-y: auto; }
-.brand { flex-wrap: wrap; white-space: normal; font-size: 19px; }
-.progress-area { flex: none; }
-.progress-text { text-align: left; }
-.exit-link { margin-top: auto; white-space: normal; }
-.stage { min-width: 0; padding: 40px 24px; }
-@media (max-width: 760px) {
-  #app { grid-template-columns: 112px minmax(0, 1fr); }
-  .topbar { padding: 24px 10px; gap: 24px; }
-  .brand-name { display: block; font-size: 14px; overflow-wrap: anywhere; }
-  .stage { padding: 24px 12px; }
-  .grades { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 760px) {
-  .brand span.brand-name { display: block; font-size: 14px; overflow-wrap: anywhere; }
 }

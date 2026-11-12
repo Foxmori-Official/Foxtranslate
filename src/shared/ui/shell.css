@@ -2,6 +2,8 @@
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
   min-height: 100vh;
+  max-width: var(--tv-workspace-max);
+  margin-inline: auto;
 }
 .fox-sidebar {
   position: sticky;
@@ -41,12 +43,23 @@
 }
 .fox-nav a:hover, .fox-help:hover { color: var(--tv-primary-text); background: var(--tv-primary-soft); }
 .fox-nav a[aria-current='page'] { background: var(--tv-nav-selected); color: var(--tv-primary-text); font-weight: 650; }
+.fox-nav-icons { display: flex; flex-wrap: wrap; gap: 4px; }
+.fox-nav-icons a {
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: var(--tv-primary-text);
+}
 .fox-help { margin-top: auto; font-size: var(--tv-fs-caption); }
-.fox-main { min-width: 0; padding: 32px 36px 56px; }
+.fox-main { min-width: 0; padding: 32px 36px 56px; margin-inline: auto; }
 @media (max-width: 760px) {
   .fox-shell { grid-template-columns: 104px minmax(0, 1fr); }
   .fox-sidebar { padding: 20px 8px; gap: 24px; }
   .fox-brand { font-size: 14px; gap: 8px; }
   .fox-nav a, .fox-help { padding: 10px 8px; font-size: 12px; }
+  .fox-nav-icons a { padding: 0; }
   .fox-main { padding: 24px 16px 40px; }
 }

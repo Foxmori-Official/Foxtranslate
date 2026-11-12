@@ -60,7 +60,7 @@ function q<T extends HTMLElement>(sel: string): T {
   return node as T
 }
 
-/** 卡片标题（按出现顺序：0=文件选择 1=翻译设置 2=开始翻译 3=校订译文） */
+/** 卡片标题（按出现顺序：0=文件选择 1=翻译设置 2=校订译文） */
 function cardTitle(idx: number): string {
   const titles = document.querySelectorAll('.card-title')
   const node = titles[idx]
@@ -69,16 +69,16 @@ function cardTitle(idx: number): string {
 }
 
 /** 等配置加载、页面按 uiLang 重渲染完成（以品牌标题为标志） */
-async function waitBrand(text: string): Promise<void> {
+async function waitTitle(text: string): Promise<void> {
   await vi.waitFor(() => {
-    expect(q('.brand-name').textContent).toBe(text)
+    expect(q('.file-page-title').textContent).toBe(text)
   })
 }
 
 describe('files 页 i18n', () => {
   it('uiLang=en：标题/上传区/按钮等文案为英文', async () => {
     await boot('en')
-    await waitBrand('Foxtranslate · Document Translation')
+    await waitTitle('Document Translation')
 
     // 上传区
     expect(cardTitle(0)).toBe('Choose file')
@@ -102,33 +102,31 @@ describe('files 页 i18n', () => {
     expect(radioDescs[0]).toBe('Original and translation side by side for easy proofreading')
     expect(radioDescs[1]).toBe('Keep only the translation for a cleaner layout')
 
-    // 开始翻译卡片 + 按钮
-    expect(cardTitle(2)).toBe('Start translation')
+    // 开始翻译按钮
     expect(q('.actions .btn').textContent).toBe('Translate')
 
     // 校订卡片（隐藏但已在 DOM 中）
-    expect(cardTitle(3)).toBe('Post-edit translation')
+    expect(cardTitle(2)).toBe('Post-edit translation')
     expect(q('.pe-toggle-text').textContent).toBe('Post-edit mode')
     expect(q('.pe-count').textContent).toBe('Edited 0 / 0 segments')
   })
 
   it('uiLang=ja：标题/上传区/按钮等文案为日文', async () => {
     await boot('ja')
-    await waitBrand('Foxtranslate · ドキュメント翻訳')
+    await waitTitle('ドキュメント翻訳')
 
     expect(cardTitle(0)).toBe('ファイルを選択')
     expect(q('.dropzone-main').textContent).toBe('ここにファイルをドラッグ')
     expect(q('.dropzone-btn').textContent).toBe('クリックしてファイルを選択')
     expect(cardTitle(1)).toBe('翻訳設定')
-    expect(cardTitle(2)).toBe('翻訳を開始')
     expect(q('.actions .btn').textContent).toBe('翻訳開始')
-    expect(cardTitle(3)).toBe('訳文を校訂')
+    expect(cardTitle(2)).toBe('訳文を校訂')
     expect(q('.pe-toggle-text').textContent).toBe('校訂モード')
   })
 
   it('uiLang=zh-CN：文案回退中文原文', async () => {
     await boot('zh-CN')
-    await waitBrand('Foxtranslate · 文档翻译')
+    await waitTitle('文档翻译')
 
     expect(cardTitle(0)).toBe('选择文件')
     expect(q('.dropzone-main').textContent).toBe('拖拽文件到这里')
@@ -136,21 +134,20 @@ describe('files 页 i18n', () => {
     expect(q('.dropzone-sub').textContent).toContain('单个文件不超过')
     expect(q('.dropzone-btn').textContent).toBe('点击选择文件')
     expect(cardTitle(1)).toBe('翻译设置')
-    expect(cardTitle(2)).toBe('开始翻译')
     expect(q('.actions .btn').textContent).toBe('开始翻译')
-    expect(cardTitle(3)).toBe('校订译文')
+    expect(cardTitle(2)).toBe('校订译文')
     expect(q('.pe-toggle-text').textContent).toBe('校订模式')
     expect(q('.pe-count').textContent).toBe('已校订 0 / 共 0 段')
   })
 
   it('storage 中 uiLang 变化时按新语言即时重渲染', async () => {
     const { storageListener } = await boot('zh-CN')
-    await waitBrand('Foxtranslate · 文档翻译')
+    await waitTitle('文档翻译')
     if (!storageListener) throw new Error('storage.onChanged 监听未注册')
 
     // 切到英文：标题/上传区/按钮立即变为英文
     storageListener({ 'tv:config_v1': { newValue: { uiLang: 'en' } } }, 'local')
-    expect(q('.brand-name').textContent).toBe('Foxtranslate · Document Translation')
+    expect(q('.file-page-title').textContent).toBe('Document Translation')
     expect(q('.dropzone-main').textContent).toBe('Drag & drop a file here')
     expect(q('.dropzone-btn').textContent).toBe('Click to choose a file')
     expect(q('.actions .btn').textContent).toBe('Translate')
@@ -158,16 +155,16 @@ describe('files 页 i18n', () => {
 
     // 切到日文
     storageListener({ 'tv:config_v1': { newValue: { uiLang: 'ja' } } }, 'local')
-    expect(q('.brand-name').textContent).toBe('Foxtranslate · ドキュメント翻訳')
+    expect(q('.file-page-title').textContent).toBe('ドキュメント翻訳')
     expect(q('.dropzone-main').textContent).toBe('ここにファイルをドラッグ')
 
     // sync 之外的变化（非 local 命名空间）不触发重渲染
     storageListener({ 'tv:config_v1': { newValue: { uiLang: 'en' } } }, 'sync')
-    expect(q('.brand-name').textContent).toBe('Foxtranslate · ドキュメント翻訳')
+    expect(q('.file-page-title').textContent).toBe('ドキュメント翻訳')
 
     // 切回中文
     storageListener({ 'tv:config_v1': { newValue: { uiLang: 'zh-CN' } } }, 'local')
-    expect(q('.brand-name').textContent).toBe('Foxtranslate · 文档翻译')
+    expect(q('.file-page-title').textContent).toBe('文档翻译')
     expect(q('.actions .btn').textContent).toBe('开始翻译')
   })
 })

@@ -1,15 +1,15 @@
 /**
- * aimaoCustom.test.ts — AI猫内置引擎 + 多实例自定义引擎（custom:<id>）核心。
+ * foxmoriCustom.test.ts — Foxmori内置引擎 + 多实例自定义引擎（custom:<id>）核心。
  *
  * 覆盖：
- * - aimaoEngine：固定端点 / keys.aimao / engine.aimao.model 的请求体来源
+ * - foxmoriEngine：固定端点 / keys.foxmori / engine.foxmori.model 的请求体来源
  * - syncCustomEngines：custom:<id> 条目的增 / 删 / 改 / 多实例 / 自定义 headers / 脏数据容错
  * - resolveEngine：custom:<id> 动态解析与未同步兜底报错
- * - endpointUrlOf：aimao / custom:<id> / 既有分支
+ * - endpointUrlOf：foxmori / custom:<id> / 既有分支
  * - isAiProvider：AI 名单 + custom: 前缀判定
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG, type Config, type CustomEngine } from '../../src/shared/config'
+import { DEFAULT_CONFIG, normalizeConfig, type Config, type CustomEngine } from '../../src/shared/config'
 import {
   CUSTOM_ENGINE_PREFIX,
   ENGINES,
@@ -17,9 +17,9 @@ import {
   syncCustomEngines,
   type EngineContext,
 } from '../../src/background/engines'
-import { AIMAO_ENDPOINT, aimaoEngine } from '../../src/background/engines/aimao'
+import { FOXMORI_ENDPOINT, foxmoriEngine } from '../../src/background/engines/foxmori'
 import { setFetchImpl } from '../../src/background/engines/fetch'
-import { endpointUrlOf, isAiProvider, resolveAiEndpoint } from '../../src/background/translate'
+import { endpointUrlOf, isAiProvider, resolveAiEndpoint, translate } from '../../src/background/translate'
 
 // ---------- 测试工具 ----------
 
@@ -78,47 +78,88 @@ afterEach(() => {
   syncCustomEngines(makeConfig())
 })
 
-// ---------- aimao 引擎 ----------
+// ---------- foxmori 引擎 ----------
 
-describe('aimaoEngine', () => {
-  it('元数据：id/name/kind/supportsBatch，并登记在 ENGINES', () => {
-    expect(aimaoEngine.id).toBe('aimao')
-    expect(aimaoEngine.name).toBe('AI猫')
-    expect(aimaoEngine.kind).toBe('byok')
-    expect(aimaoEngine.supportsBatch).toBe(true)
-    expect(ENGINES.aimao).toBe(aimaoEngine)
+describe('foxmoriEngine', () => {
+  it('替换旧版引擎时不迁移旧服务的密钥和模型', () => {
+    const config = normalizeConfig({
+      engine: { provider: 'aimao', keys: { aimao: 'old-provider-key' }, aimao: { model: 'old-model' } },
+      compareEngines: ['google', 'aimao'],
+    })
+    expect(config.engine.provider).toBe('foxmori')
+    expect(config.engine.keys.foxmori).toBe('')
+    expect(config.engine.foxmori.model).toBe('')
+    expect(JSON.stringify(config)).not.toContain('old-provider-key')
+    expect(config.compareEngines).toEqual(['google'])
   })
 
-  it('请求体：固定 endpoint，key 读 keys.aimao，model 读 engine.aimao.model', async () => {
+  it('模型和密钥切换后，同一段原文使用新配置发请求', async () => {
+    vi.stubGlobal('chrome', { permissions: { contains: async () => true } })
+    try {
+      installFetch((_url, init) => {
+        const { model } = JSON.parse(String(init?.body))
+        return chatResponse(JSON.stringify({ translations: [{ id: 1, text: '译文 ' + model }] }))
+      })
+      const config = makeConfig(c => {
+        c.engine.provider = 'foxmori'
+        c.engine.keys.foxmori = 'first-fixture-key'
+        c.engine.foxmori.model = 'first-model'
+        c.batch.intervalMs = 1
+      })
+      const text = 'Translate this sentence using the selected model.'
+      const opts = { targetLang: 'zh-CN' }
+      expect((await translate(text, opts, config)).text).toBe('译文 first-model')
+
+      const updated = structuredClone(config)
+      updated.engine.keys.foxmori = 'second-fixture-key'
+      updated.engine.foxmori.model = 'second-model'
+      expect((await translate(text, opts, updated)).text).toBe('译文 second-model')
+      expect(calls).toHaveLength(2)
+      expect(new Headers(calls[1].init?.headers).get('authorization')).toBe('Bearer second-fixture-key')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('元数据：id/name/kind/supportsBatch，并登记在 ENGINES', () => {
+    expect(foxmoriEngine.id).toBe('foxmori')
+    expect(foxmoriEngine.name).toBe('Foxmori')
+    expect(foxmoriEngine.kind).toBe('byok')
+    expect(foxmoriEngine.supportsBatch).toBe(true)
+    expect(ENGINES.foxmori).toBe(foxmoriEngine)
+  })
+
+  it('请求体：固定 endpoint，key 读 keys.foxmori，model 读 engine.foxmori.model', async () => {
     installFetch(() => chatResponse(' 你好 '))
     const ctx = makeCtx((c) => {
-      c.engine.keys.aimao = 'ak-mao'
-      c.engine.aimao.model = 'aimao-pro'
+      c.engine.keys.foxmori = 'ak-mao'
+      c.engine.foxmori.model = 'foxmori-pro'
     })
-    const res = await aimaoEngine.translate('hello', 'auto', 'zh-CN', ctx)
+    const res = await foxmoriEngine.translate('hello', 'auto', 'zh-CN', ctx)
     expect(res.text).toBe('你好')
     expect(calls).toHaveLength(1)
-    expect(calls[0].url).toBe('https://api.aimao.today/v1/chat/completions')
+    expect(calls[0].url).toBe('https://api.foxmori.com/v1/chat/completions')
     const headers = calls[0].init?.headers as Record<string, string>
     expect(headers.Authorization).toBe('Bearer ak-mao')
     expect(headers['Content-Type']).toBe('application/json')
     const body = JSON.parse(String(calls[0].init?.body)) as { model: string; temperature: number }
-    expect(body.model).toBe('aimao-pro')
+    expect(body.model).toBe('foxmori-pro')
     expect(body.temperature).toBe(0.1)
   })
 
-  it('endpoint 常量唯一来源：AIMAO_ENDPOINT', () => {
-    expect(AIMAO_ENDPOINT).toBe('https://api.aimao.today/v1')
+  it('endpoint 常量唯一来源：FOXMORI_ENDPOINT', () => {
+    expect(FOXMORI_ENDPOINT).toBe('https://api.foxmori.com/v1')
   })
 
   it('缺 key：引擎调用与 resolveEngine 都抛设置页引导错误', async () => {
     installFetch(() => chatResponse('x'))
-    await expect(aimaoEngine.translate('a', 'auto', 'en', makeCtx())).rejects.toThrow(/options page/i)
-    expect(() => resolveEngine('aimao', makeCtx())).toThrow(/options page/i)
+    await expect(foxmoriEngine.translate('a', 'auto', 'en', makeCtx())).rejects.toThrow(/options page/i)
+    expect(() => resolveEngine('foxmori', makeCtx())).toThrow(/options page/i)
     const withKey = makeCtx((c) => {
-      c.engine.keys.aimao = 'ak'
+      c.engine.keys.foxmori = 'ak'
+      c.engine.foxmori.model = 'fixture-model'
     })
-    expect(resolveEngine('aimao', withKey)).toBe(aimaoEngine)
+    expect(resolveEngine('foxmori', withKey)).toBe(foxmoriEngine)
   })
 })
 
@@ -163,7 +204,7 @@ describe('syncCustomEngines', () => {
     expect(ENGINES['custom:e1']).toBeUndefined()
     expect(ENGINES['custom:e2']).toBeUndefined()
     // 内置条目（含旧版单发 custom 引擎）原样保留
-    for (const id of ['google', 'bing', 'mymemory', 'deepl', 'openai', 'deepseek', 'claude', 'gemini', 'aimao', 'libretranslate', 'custom']) {
+    for (const id of ['google', 'bing', 'mymemory', 'deepl', 'openai', 'deepseek', 'claude', 'gemini', 'foxmori', 'libretranslate', 'custom']) {
       expect(ENGINES[id]).toBeDefined()
     }
   })
@@ -279,8 +320,8 @@ describe('endpointUrlOf', () => {
     }))).toBe('https://my.api/translate')
   })
 
-  it('aimao：固定端点', () => {
-    expect(endpointUrlOf(makeConfig((c) => { c.engine.provider = 'aimao' }))).toBe('https://api.aimao.today/v1')
+  it('foxmori：固定端点', () => {
+    expect(endpointUrlOf(makeConfig((c) => { c.engine.provider = 'foxmori' }))).toBe('https://api.foxmori.com/v1')
   })
 
   it('custom:<id>：返回 entry.endpoint；条目缺失或端点为空返回 null', () => {
@@ -312,8 +353,8 @@ describe('endpointUrlOf', () => {
 // ---------- isAiProvider ----------
 
 describe('isAiProvider', () => {
-  it('内置 AI 名单：openai/deepseek/claude/gemini/aimao', () => {
-    for (const p of ['openai', 'deepseek', 'claude', 'gemini', 'aimao']) {
+  it('内置 AI 名单：openai/deepseek/claude/gemini/foxmori', () => {
+    for (const p of ['openai', 'deepseek', 'claude', 'gemini', 'foxmori']) {
       expect(isAiProvider(p)).toBe(true)
     }
   })
@@ -333,15 +374,15 @@ describe('isAiProvider', () => {
 // ---------- resolveAiEndpoint（aiAssist/aiChat/aiWrite 共用的端点解析） ----------
 
 describe('resolveAiEndpoint', () => {
-  it('aimao：固定 base + engine.aimao.model + keys.aimao', () => {
+  it('foxmori：固定 base + engine.foxmori.model + keys.foxmori', () => {
     const config = makeConfig((c) => {
-      c.engine.provider = 'aimao'
-      c.engine.keys.aimao = 'ak-1'
-      c.engine.aimao.model = 'aimao-lite'
+      c.engine.provider = 'foxmori'
+      c.engine.keys.foxmori = 'ak-1'
+      c.engine.foxmori.model = 'foxmori-lite'
     })
     expect(resolveAiEndpoint(config)).toEqual({
-      base: 'https://api.aimao.today/v1',
-      model: 'aimao-lite',
+      base: 'https://api.foxmori.com/v1',
+      model: 'foxmori-lite',
       apiKey: 'ak-1',
     })
   })
@@ -359,7 +400,7 @@ describe('resolveAiEndpoint', () => {
   })
 
   it('缺 key / 条目缺失 / 非 AI provider 抛配置引导错误', () => {
-    expect(() => resolveAiEndpoint(makeConfig((c) => { c.engine.provider = 'aimao' }))).toThrow(
+    expect(() => resolveAiEndpoint(makeConfig((c) => { c.engine.provider = 'foxmori' }))).toThrow(
       '请先在设置页配置 AI 引擎',
     )
     expect(() => resolveAiEndpoint(makeConfig((c) => { c.engine.provider = 'custom:ghost' }))).toThrow(

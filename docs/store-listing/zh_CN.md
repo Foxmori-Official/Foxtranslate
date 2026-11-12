@@ -42,7 +42,8 @@ Foxtranslate - 开源双语对照翻译
 
 🔒 PRIVACY【隐私保护】
 
-无账号、无遥测、无中间服务器。设置与 API Key 只保存在浏览器本地存储中。开启脱敏后，敏感信息在本机替换为占位符、译文返回后本地还原——未脱敏的内容不会离开你的浏览器。
+免费引擎无需登录，扩展不内置遥测。设置、密钥和生词保存在本机。翻译和 AI 功能会将所需文本发送给相应服务。可选脱敏覆盖翻译管线识别到的敏感模式。
+https://github.com/Foxmori-Official/Foxtranslate/blob/main/PRIVACY.md
 
 💬 SUPPORT【支持与反馈】
 

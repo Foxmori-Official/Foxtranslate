@@ -47,6 +47,7 @@
   --tv-space-4: 16px;
   --tv-space-5: 24px;
   --tv-space-6: 32px;
+  --tv-workspace-max: 1180px;
 
   /* 阴影 */
   --tv-shadow-sm: 0 1px 3px rgba(41, 61, 51, 0.06);

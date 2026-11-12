@@ -1,7 +1,7 @@
 /**
  * Foxtranslate core — 译文样式定义（id / 中文名 / 英文名 / CSS 类名）。
  *
- * className 统一 `tv-style-*` kebab，具体样式由 content.css 实现；
+ * className 统一 `tv-style-*` kebab，具体样式由 translation-styles.css 实现；
  * config.style.styleId 存 id，渲染时 getStyle(id) 取类名，未知 id 回退 soft-gray。
  *
  * 本模块为 core 纯逻辑：零浏览器 API、零外部依赖。
@@ -16,7 +16,7 @@ export interface TranslationStyle {
   nameEn: string
   /** i18n 键：设置页样式 tab 与 popup 样式下拉共用 */
   nameKey: string
-  /** content.css 中的样式类，统一 tv-style-* */
+  /** 网页译文和设置页预览共用的样式类 */
   className: string
 }
 

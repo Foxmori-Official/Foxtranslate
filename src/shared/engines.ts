@@ -1,10 +1,17 @@
 /**
  * 内置翻译引擎显示名（单一数据源）：popup / options / onboarding 三处下拉共用。
- * 品牌名（aimao / DeepL / Claude …）各语言不译；"免费/兼容"本地化。
+ * 品牌名（foxmori / DeepL / Claude …）各语言不译；"免费/兼容"本地化。
  * 各页按需取 name（nameKey 查表）；options 引擎 tab 额外取 desc。
  */
 import { t } from './i18n'
 import type { UiLangCode } from './i18n'
+
+export const FREE_ENGINE_IDS: readonly string[] = ['google', 'bing', 'mymemory']
+
+/** These providers use the AI translation prompts, including the selected expert. */
+export function isAiProvider(provider: string): boolean {
+  return ['foxmori', 'openai', 'deepseek', 'claude', 'gemini'].includes(provider) || provider.startsWith('custom:')
+}
 
 export interface BuiltinEngine {
   id: string
@@ -15,7 +22,7 @@ export interface BuiltinEngine {
 }
 
 export const BUILTIN_ENGINES: ReadonlyArray<BuiltinEngine> = [
-  { id: 'aimao', nameKey: 'engine.aimao', zh: 'aimao', descKey: 'engine.aimaoDesc', descZh: 'aimao 提供的 OpenAI 兼容翻译服务，开箱即用。' },
+  { id: 'foxmori', nameKey: 'engine.foxmori', zh: 'Foxmori', descKey: 'engine.foxmoriDesc', descZh: '连接狐森账户，创建密钥并选择账户可用的模型。' },
   { id: 'google', nameKey: 'engine.google', zh: '谷歌（免费）', descKey: 'engine.googleDesc', descZh: '谷歌 gtx 免费端点，开箱即用，无需密钥。' },
   { id: 'bing', nameKey: 'engine.bing', zh: '微软（免费）', descKey: 'engine.bingDesc', descZh: '微软 Edge 翻译端点，免费引擎链备选。' },
   { id: 'mymemory', nameKey: 'engine.mymemory', zh: 'MyMemory（免费）', descKey: 'engine.mymemoryDesc', descZh: 'MyMemory 免费接口，免费引擎链兜底。' },

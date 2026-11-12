@@ -1,0 +1,26 @@
+.reading-preview {
+  margin: 12px 0 4px;
+  overflow: hidden;
+  border: 1px solid var(--tv-border);
+  border-radius: 12px;
+  background: var(--tv-card);
+}
+.reading-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 14px;
+  background: var(--tv-primary-soft);
+}
+.reading-preview-bar span {
+  flex: 1;
+  height: 5px;
+  max-width: 100px;
+  border-radius: 5px;
+  background: var(--tv-border-strong);
+}
+.reading-preview-article { padding: 14px 16px 16px; }
+.reading-preview-article p { margin: 0; overflow-wrap: anywhere; }
+.reading-preview-translation { display: block; overflow-wrap: anywhere; }
+.reading-preview-article p + .reading-preview-translation { margin-top: 6px; }

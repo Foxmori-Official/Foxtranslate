@@ -1,4 +1,4 @@
-import type { Config } from './config'
+import type { Config, SubtitlePatch } from './config'
 
 // ===== content / popup → background =====
 export type BgRequest =
@@ -12,14 +12,19 @@ export type BgRequest =
   | { kind: 'compareTranslate'; text: string; targetLang: string; engineIds: string[] }
   | { kind: 'getConfig' }
   | { kind: 'setConfig'; patch: Partial<Config> }
+  | { kind: 'setSubtitlePreferences'; patch: SubtitlePatch }
   | { kind: 'saveWord'; word: string; context?: string; translation?: string; pageUrl?: string; pageTitle?: string }
   | { kind: 'deleteWord'; id: string }
   | { kind: 'getWords' }
   | { kind: 'reviewGrade'; wordId: string; rating: 1 | 2 | 3 | 4 }
   | { kind: 'getStats' }
-  | { kind: 'testEngine' }
+  | { kind: 'testEngine'; provider?: string }
+  | { kind: 'foxmoriLogin' }
+  | { kind: 'foxmoriAccount' }
+  | { kind: 'foxmoriCreateKey'; groupId: number; accountId: number }
+  | { kind: 'fetchModels'; provider: string }
   | { kind: 'setBadge'; active: boolean }
-  | { kind: 'command'; cmd: 'togglePage' | 'openOptions' | 'openReview' | 'openFiles' }
+  | { kind: 'command'; cmd: 'togglePage' | 'openOptions' | 'openVideoOptions' | 'openReview' | 'openFiles' }
 
 export type AiAssistAction = 'meaning' | 'grammar' | 'usage' | 'practice'
 export type AiWriteAction = 'polish' | 'continue' | 'summarize' | 'reply' | 'translate'
@@ -74,12 +79,12 @@ export interface StatsResult {
   translatedChars: number
 }
 
-/** kind:'testEngine' 的 data：用当前配置引擎翻译 "Hello" 的连通性测试结果。失败原话在 error。 */
+/** kind:'testEngine' 的 data：用指定引擎翻译 "Hello" 的连通性测试结果。失败原话在 error。 */
 export interface TestEngineResult {
   ok: boolean
   /** 成功时的译文 */
   text?: string
-  /** 当前配置的引擎 id */
+  /** 被测试的引擎 id */
   engine: string
   elapsedMs: number
   /** 失败时的错误原话 */

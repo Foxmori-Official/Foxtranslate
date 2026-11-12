@@ -1,10 +1,12 @@
 import { uiCopy } from '../shared/interface'
+import { createReadingPreview } from '../shared/readingPreview'
+import { featureCopy } from '../shared/featureCopy'
 import { bindListbox } from '../shared/listbox'
 /**
  * Foxtranslate 首次安装引导页 — 三步卡片式向导（原生 TS，无框架，10 语言 UI）。
  *
  * 三步：
- * 1. 欢迎与基础设置：目标语言（LANGS 全量，常用置顶）、翻译引擎（AI猫置顶 + 内置 +
+ * 1. 欢迎与基础设置：目标语言（LANGS 全量，常用置顶）、翻译引擎（Foxmori置顶 + 内置 +
  *    customEngines，16px 图标）、显示模式单选卡片；全部即改即存
  *    （{kind:'setConfig',patch} 写入 tv:config_v1，与 popup 同一键），不等最后一步；
  * 2. 固定到工具栏：三步图文指引（拼图图标 → 找到 Foxtranslate → 图钉固定）；
@@ -16,7 +18,7 @@ import { bindListbox } from '../shared/listbox'
  */
 import { LANGS, COMMON_LANG_CODES, langNative } from '../core/langs'
 import type { Config } from '../shared/config'
-import { fmt, resolveUiLang, t, type ResolvedLang } from '../shared/i18n'
+import { fmt, resolveUiLang, t, UI_LANGS, type ResolvedLang } from '../shared/i18n'
 import { watchUiLang } from '../shared/i18n-pages'
 import type { BgRequest, BgResponse, TranslateResult } from '../shared/protocol'
 import { BUILTIN_ENGINES, engineName } from '../shared/engines'
@@ -33,7 +35,7 @@ async function sendBg<T>(msg: BgRequest): Promise<T> {
   return resp.data
 }
 
-// ===== 引擎选项（与 popup 保持一致：AI猫置顶 + 内置引擎 + customEngines） =====
+// ===== 引擎选项（与 popup 保持一致：Foxmori置顶 + 内置引擎 + customEngines） =====
 
 interface EngineOption {
   id: string
@@ -43,7 +45,7 @@ interface EngineOption {
 }
 
 const ENGINE_ICON_FILES: Record<string, string> = {
-  aimao: 'engine-icons/aimao.png',
+  foxmori: 'icons/icon48.png',
   google: 'engine-icons/google.svg',
   bing: 'engine-icons/bing.svg',
   mymemory: 'engine-icons/mymemory.png',
@@ -62,7 +64,7 @@ function engineIconFor(id: string): string {
   return ENGINE_ICON_FILES[id] ?? ENGINE_ICON_FILES.custom
 }
 
-/** 引擎下拉选项：AI猫第一 + 内置引擎 + config.engine.customEngines（id 为 custom:<entryId>） */
+/** 引擎下拉选项：Foxmori第一 + 内置引擎 + config.engine.customEngines（id 为 custom:<entryId>） */
 function getEngineOptions(cfg: Config): EngineOption[] {
   const options: EngineOption[] = BUILTIN_ENGINES.map((e) => ({ id: e.id, name: engineName(e, uiLang), icon: engineIconFor(e.id) }))
   for (const entry of cfg.engine.customEngines) {
@@ -145,6 +147,7 @@ async function applyPatch(patch: Partial<Config>): Promise<void> {
   render()
   try {
     config = await sendBg<Config>({ kind: 'setConfig', patch })
+    uiLang = resolveUiLang(config.uiLang)
   } catch (error) {
     saveError = uiCopy('saveFailed', uiLang) + ' ' + errMsg(error)
   } finally {
@@ -169,9 +172,6 @@ function buildProgress(): HTMLElement {
 
   const progress = el('div', 'ob-progress')
   progress.setAttribute('role', 'group')
-  progress.setAttribute('aria-valuemin', '1')
-  progress.setAttribute('aria-valuemax', '3')
-  progress.setAttribute('aria-valuenow', String(completed ? 3 : step))
   progress.setAttribute(
     'aria-label',
     fmt(L('onboarding.progress', '第 {n} 步，共 {total} 步'), { n: completed ? 3 : step, total: 3 }),
@@ -381,6 +381,7 @@ function buildStep1(cfg: Config): HTMLElement {
     buildField(L('onboarding.field.targetLang', '目标语言'), buildTargetLangSelect(cfg)),
     buildField(L('onboarding.field.engine', '翻译引擎'), buildEngineSelect(cfg)),
     buildField(L('onboarding.field.displayMode', '显示模式'), buildDisplayModeRadios(cfg)),
+    createReadingPreview(cfg),
     el('p', 'ob-service-hint', uiCopy('serviceHint', uiLang)),
   )
 
@@ -406,6 +407,25 @@ function buildStep1(cfg: Config): HTMLElement {
 
 // ===== Step 2：固定到工具栏 =====
 
+function toolbarIcon(type: 'extensions' | 'pin'): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(ns, 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.classList.add('ob-toolbar-icon')
+  const path = document.createElementNS(ns, 'path')
+  path.setAttribute('d', type === 'pin'
+    ? 'M15 3h-6v2l1 2-2 6-3 2v2h14v-2l-3-2-2-6 1-2V3Zm-3 14v4'
+    : 'M20 10V6a1 1 0 0 0-1-1h-4a2.5 2.5 0 0 0-5 0H6a1 1 0 0 0-1 1v4a2.5 2.5 0 0 1 0 5v4a1 1 0 0 0 1 1h4a2.5 2.5 0 0 1 5 0h4a1 1 0 0 0 1-1v-4a2.5 2.5 0 0 0 0-5Z')
+  path.setAttribute('fill', 'none')
+  path.setAttribute('stroke', 'currentColor')
+  path.setAttribute('stroke-width', '1.6')
+  path.setAttribute('stroke-linejoin', 'round')
+  path.setAttribute('stroke-linecap', 'round')
+  svg.append(path)
+  return svg
+}
+
 function buildStep2(): HTMLElement {
   const section = el('section', 'ob-step ob-step-2')
 
@@ -419,28 +439,30 @@ function buildStep2(): HTMLElement {
   )
 
   const steps = el('div', 'ob-pin-steps')
-  const rows: ReadonlyArray<{ icon: string; text: string }> = [
-    { icon: '🧩', text: L('onboarding.pin.step1', '点击浏览器右上角的拼图图标') },
-    { icon: 'ext', text: L('onboarding.pin.step2', '在列表中找到 Foxtranslate') },
-    { icon: '📌', text: L('onboarding.pin.step3', '点击图钉图标，将它固定到工具栏') },
+  const rows = [
+    L('onboarding.pin.step1', '点击浏览器右上角的拼图图标'),
+    L('onboarding.pin.step2', '在列表中找到 Foxtranslate'),
+    L('onboarding.pin.step3', '点击图钉图标，将它固定到工具栏'),
   ]
-  rows.forEach((row, idx) => {
+  rows.forEach((text, idx) => {
     const item = el('div', 'ob-pin-step')
     item.append(el('span', 'ob-pin-num', String(idx + 1)))
-    if (row.icon === 'ext') {
-      const img = el('img', 'ob-pin-ext-icon') as HTMLImageElement
-      img.src = chrome.runtime.getURL('icons/icon128.png')
-      img.alt = 'Foxtranslate'
-      img.width = 22
-      img.height = 22
-      item.append(img)
-    } else {
-      item.append(el('span', 'ob-pin-emoji', row.icon))
-    }
-    item.append(el('span', 'ob-pin-text', row.text))
+    item.append(el('span', 'ob-pin-text', text))
     steps.append(item)
   })
-  section.append(steps)
+  const diagram = el('div', 'ob-toolbar-preview')
+  diagram.setAttribute('role', 'img')
+  diagram.setAttribute('aria-label', featureCopy('pinPreview', uiLang))
+  const toolbar = el('div', 'ob-preview-toolbar')
+  toolbar.append(el('span', 'ob-address'), toolbarIcon('extensions'))
+  const extensionRow = el('div', 'ob-preview-extension')
+  const image = el('img', 'ob-pin-ext-icon')
+  image.src = chrome.runtime.getURL('icons/icon48.png')
+  image.alt = ''
+  image.width = image.height = 22
+  extensionRow.append(image, el('span', 'ob-preview-name', 'Foxtranslate'), toolbarIcon('pin'))
+  diagram.append(toolbar, extensionRow)
+  section.append(diagram, steps)
 
   const actions = el('div', 'ob-actions')
   const prev = el('button', 'ob-btn ghost ob-prev', L('onboarding.prev', '上一步'))
@@ -627,6 +649,21 @@ function render(): void {
   renderedRoot = shell
   const card = el('div', 'ob-card')
   const content = el('main', 'ob-content')
+  const language = el('label', 'ob-language')
+  language.append(el('span', '', t('general.uiLang', uiLang, '界面语言')))
+  const select = el('select', 'ob-select ob-ui-language')
+  select.setAttribute('aria-label', t('general.uiLang', uiLang, '界面语言'))
+  for (const item of UI_LANGS) {
+    const option = el('option', '', item.code === 'auto' ? t('general.uiLangAuto', uiLang, '跟随系统') : item.name)
+    option.value = item.code
+    select.append(option)
+  }
+  select.value = UI_LANGS.some(item => item.code === config?.uiLang) ? config.uiLang : 'auto'
+  select.addEventListener('change', () => {
+    void applyPatch({ uiLang: select.value }).then(() => app.querySelector<HTMLSelectElement>('.ob-ui-language')?.focus())
+  })
+  language.append(select)
+  content.append(language)
   card.append(buildProgress())
   if (completed) content.append(buildDone())
   else if (step === 1) content.append(buildStep1(config))

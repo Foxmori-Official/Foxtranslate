@@ -19,7 +19,8 @@
         "content.js"
       ],
       "css": [
-        "content.css"
+        "content.css",
+        "translation-styles.css"
       ],
       "run_at": "document_idle",
       "all_frames": false
@@ -78,7 +79,8 @@
     "https://api-free.deepl.com/",
     "https://api.deepl.com/",
     "https://api.openai.com/",
-    "https://api.aimao.today/",
+    "https://api.foxmori.com/",
+    "https://foxmori.com/",
     "https://api.deepseek.com/",
     "https://api.anthropic.com/",
     "https://generativelanguage.googleapis.com/",

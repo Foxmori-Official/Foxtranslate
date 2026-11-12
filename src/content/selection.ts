@@ -4,6 +4,7 @@ import { ct } from './uiLang'
 import { fmt } from '../shared/i18n'
 import type { AiAssistAction, AiChatMessage, AiWriteAction, BgResponse } from '../shared/protocol'
 import { langName } from '../core/langs'
+import { outlineIcon } from '../shared/ui/icon'
 import { TtsPlayer } from './tts'
 
 let popup: HTMLElement | null = null
@@ -12,6 +13,16 @@ let currentConfig: Config | null = null
 
 // 朗读播放器单例：跨气泡共享，重复朗读自动中断旧播放
 const ttsPlayer = new TtsPlayer()
+const SPEAK = 'M3 9h4l5-4v14l-5-4H3zM15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12'
+const STOP = 'M7 7h10v10H7z'
+const COPY = 'M8 8h12v12H8zM16 4H4v12'
+const CLOSE = 'M6 6l12 12M18 6 6 18'
+
+function setActionIcon(button: HTMLButtonElement, label: string, path: string): void {
+  button.title = label
+  button.setAttribute('aria-label', label)
+  button.replaceChildren(outlineIcon(path))
+}
 
 export function setSelectionConfig(config: Config) {
   currentConfig = config
@@ -149,7 +160,12 @@ function buildPopup(text: string, rect: DOMRect) {
   const source = document.createElement('div')
   source.className = 'tv-sel-source'
   source.textContent = text.length > 120 ? text.slice(0, 120) + '…' : text
-  popup.appendChild(source)
+  const header = document.createElement('div')
+  header.className = 'tv-sel-head'
+  const utilities = document.createElement('div')
+  utilities.className = 'tv-sel-utilities'
+  header.append(source, utilities)
+  popup.append(header)
 
   const translation = document.createElement('div')
   translation.className = 'tv-sel-translation'
@@ -290,15 +306,18 @@ function buildPopup(text: string, rect: DOMRect) {
     resultActions.append(copyBtn, replaceBtn)
   }
 
-  const addBtn = (label: string, onClick: () => void, primary = false) => {
+  const addBtn = (label: string, onClick: () => void, style: 'primary' | 'secondary' | 'icon', path = '') => {
     const b = document.createElement('button')
-    b.className = 'tv-sel-btn' + (primary ? ' tv-sel-primary' : '')
-    b.textContent = label
+    b.type = 'button'
+    b.className = 'tv-sel-btn tv-sel-' + style
+    if (style === 'icon') setActionIcon(b, label, path)
+    else b.textContent = label
     b.addEventListener('click', (e) => {
       e.stopPropagation()
       onClick()
     })
-    actions.appendChild(b)
+    const container = style === 'icon' ? utilities : actions
+    container.append(b)
     return b
   }
 
@@ -427,12 +446,12 @@ function buildPopup(text: string, rect: DOMRect) {
   addBtn(ct('sel.ai', 'AI 解析'), () => {
     aiBox.style.display = aiBox.style.display === 'none' ? 'block' : 'none'
     if (aiBox.style.display === 'block') buildAiPanel()
-  })
+  }, 'secondary')
   if (config.writing.enabled) {
     addBtn(ct('sel.write', '✍ 写作'), () => {
       writeBox.style.display = writeBox.style.display === 'none' ? 'block' : 'none'
       if (writeBox.style.display === 'block') buildWritePanel()
-    })
+    }, 'secondary')
   }
   if (config.learning.enabled) {
     addBtn(ct('sel.save', '☆ 收藏'), async () => {
@@ -448,12 +467,13 @@ function buildPopup(text: string, rect: DOMRect) {
       } catch (e) {
         toast(ct('sel.saveFailed', '收藏失败：') + (e as Error).message)
       }
-    })
+    }, 'primary')
   }
   // 朗读：播放中按钮变「停止」，再点停止；自然播完自动还原
-  const speakBtn = addBtn(ttsPlayer.isPlaying() ? ct('sel.stop', '停止') : ct('sel.speak', '朗读'), () => toggleSpeak(text, config))
+  const speaking = ttsPlayer.isPlaying()
+  const speakBtn = addBtn(speaking ? ct('sel.stop', '停止') : ct('sel.speak', '朗读'), () => toggleSpeak(text, config), 'icon', speaking ? STOP : SPEAK)
   ttsPlayer.onStateChange = (playing) => {
-    speakBtn.textContent = playing ? ct('sel.stop', '停止') : ct('sel.speak', '朗读')
+    setActionIcon(speakBtn, playing ? ct('sel.stop', '停止') : ct('sel.speak', '朗读'), playing ? STOP : SPEAK)
   }
   addBtn(ct('sel.copy', '复制'), async () => {
     try {
@@ -462,8 +482,8 @@ function buildPopup(text: string, rect: DOMRect) {
     } catch {
       toast(ct('sel.copyFailed', '复制失败'))
     }
-  })
-  addBtn(ct('sel.close', '关闭'), () => removePopup())
+  }, 'icon', COPY)
+  addBtn(ct('sel.close', '关闭'), () => removePopup(), 'icon', CLOSE)
 
   // 定位：优先选区下方，越界则上方
   const pad = 8

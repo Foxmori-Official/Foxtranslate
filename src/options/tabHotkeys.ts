@@ -11,6 +11,7 @@
  * 样式只复用 style.css 已有类名（card/field/control/btn 等），不新增 CSS。
  */
 import { DEFAULT_CONFIG, type Config } from '../shared/config'
+import { featureCopy } from '../shared/featureCopy'
 import { fmt, t, resolveUiLang } from '../shared/i18n'
 
 export interface HotkeysTabCtx {
@@ -41,6 +42,7 @@ export function renderHotkeysTab(root: HTMLElement, ctx: HotkeysTabCtx): void {
     { id: 'togglePage', label: ot('opt.hotkeys.s1', '切换整页翻译'), hint: ot('opt.hotkeys.s2', '默认 Alt+T') },
     { id: 'compare', label: ot('opt.hotkeys.s3', '对比窗（多引擎对照）'), hint: ot('opt.hotkeys.s4', '默认 Alt+D') },
     { id: 'openOptions', label: ot('opt.hotkeys.s5', '打开设置页'), hint: ot('opt.hotkeys.s6', '默认 Alt+O') },
+    { id: 'toggleSubtitles', label: featureCopy('toggleHotkey', ctx.config.uiLang), hint: 'Alt+S' },
   ]
 
   const { config, patchConfig, el } = ctx

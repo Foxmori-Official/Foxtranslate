@@ -35,7 +35,8 @@ Leia páginas em outros idiomas como se fossem sua língua materna. O Foxtransla
 
 🔒 PRIVACIDADE
 
-Sem conta, sem telemetria e sem servidores intermediários. Chaves de API, glossários e cartões ficam somente no armazenamento local do navegador. O mascaramento acontece no seu dispositivo: o conteúdo sensível nunca sai do navegador.
+Os mecanismos gratuitos funcionam sem login. A extensão não inclui telemetria. Configurações, chaves e vocabulário ficam no navegador. As funções de tradução e IA enviam texto aos serviços correspondentes. O mascaramento opcional abrange os padrões reconhecidos no processo de tradução.
+https://github.com/Foxmori-Official/Foxtranslate/blob/main/PRIVACY.md
 
 💬 SUPORTE
 

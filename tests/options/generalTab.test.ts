@@ -56,9 +56,9 @@ function qs<T extends Element>(sel: string, root: ParentNode = document): T {
 }
 
 function cardTitles(): string[] {
-  return Array.from(
-    document.querySelectorAll(".content > .card > .card-title"),
-  ).map((h) => h.textContent ?? "");
+  return Array.from(document.querySelectorAll(".content > .card"),
+    (card) => card.querySelector(".card-title")?.textContent ?? "",
+  );
 }
 
 function navLabels(): string[] {
@@ -119,7 +119,7 @@ describe("通用标签页", () => {
     await boot(cfg);
 
     expect(navLabels()).toEqual([
-      "通用", "翻译引擎", "译文样式", "交互", "视频与会议", "快捷键",
+      "通用", "Foxmori 账户", "翻译引擎", "译文样式", "交互", "视频与会议", "快捷键",
       "AI 专家", "AI 写作", "语音朗读", "生词本", "术语表", "AI 术语库", "隐私",
     ]);
     expect(qs<HTMLElement>(".page-title").textContent).toBe("通用");
@@ -128,6 +128,7 @@ describe("通用标签页", () => {
     );
     // 通用页各行标签保持中文
     expect(cardTitles()).toEqual([
+      "Foxmori 账户",
       "语言设置",
       "显示模式",
       "总是翻译此网站",
@@ -153,7 +154,8 @@ describe("通用标签页", () => {
     expect(stored.uiLang).toBe("en");
     // 导航标签变英文
     expect(navLabels()[0]).toBe("General");
-    expect(navLabels()[1]).toBe("Engines");
+    expect(navLabels()[1]).toBe("Foxmori account");
+    expect(navLabels()[2]).toBe("Engines");
     // 页标题/说明变英文
     expect(qs<HTMLElement>(".page-title").textContent).toBe("General");
     expect(qs<HTMLElement>(".page-desc").textContent).toBe(
@@ -161,6 +163,7 @@ describe("通用标签页", () => {
     );
     // 通用页卡片标题变英文
     expect(cardTitles()).toEqual([
+      "Foxmori account",
       "Languages",
       "Display mode",
       "Always translate these sites",
@@ -181,7 +184,7 @@ describe("通用标签页", () => {
 
     const cards = document.querySelectorAll(".content > .card");
     expect(cards.length).toBe(2);
-    expect(cards[0].querySelector(".card-title")?.textContent).toBe("引擎选择");
+    expect(cards[0].querySelector(".card-title")?.textContent).toBe("翻译服务");
     expect(cards[1].querySelector(".card-title")?.textContent).toBe("批量翻译");
     expect(cardTitles()).not.toContain("请求超时");
 

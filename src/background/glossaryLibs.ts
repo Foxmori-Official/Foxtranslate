@@ -204,6 +204,10 @@ export async function resolveEffectiveGlossary(config: Config): Promise<Glossary
 const AI_PROVIDER_ERROR = '请先在设置页配置 AI 引擎'
 const MAX_EXTRACT_INPUT = 4000
 
+export function supportsTermExtraction(provider: string): provider is 'openai' | 'deepseek' {
+  return provider === 'openai' || provider === 'deepseek'
+}
+
 function extractSystemPrompt(targetLang: string): string {
   return (
     `You are a terminology extraction assistant. Extract up to 20 domain-specific terms, ` +
@@ -252,7 +256,7 @@ export async function extractTermsWithAI(
   config: Config,
 ): Promise<GlossaryTerm[]> {
   const provider = config.engine.provider
-  if (provider !== 'openai' && provider !== 'deepseek') throw new Error(AI_PROVIDER_ERROR)
+  if (!supportsTermExtraction(provider)) throw new Error(AI_PROVIDER_ERROR)
   if (!config.engine.keys.openai.trim()) throw new Error(AI_PROVIDER_ERROR)
   const ep = provider === 'deepseek' ? config.engine.deepseek : config.engine.openai
   const fallback =

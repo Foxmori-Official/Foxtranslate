@@ -1,6 +1,6 @@
 # Foxtranslate 隐私政策 / Privacy Policy
 
-生效日期 2026-11-11。适用于 Foxtranslate 的 Chrome / Edge 扩展。
+生效日期 2026-11-12。适用于 Foxtranslate 的 Chrome / Edge 扩展。
 
 ## 中文
 
@@ -13,9 +13,11 @@ Foxtranslate 是开源双语翻译扩展。扩展不要求注册账号，不内�
 - 网页翻译、划词、悬停、输入框、文档与字幕功能会把待翻译文本发送给所选服务。
 - 自动翻译规则、悬停与字幕等功能在触发后可自动发送文本，开关位于扩展设置中。
 - 语言检测可能请求 Google。免费引擎失败降级和多引擎对比可能访问多个服务。
+- 内置免费服务为 Google 翻译、Microsoft 翻译和 MyMemory。可选服务包括 Foxmori、DeepL、OpenAI 兼容端点、DeepSeek、Claude、Gemini、LibreTranslate 和用户配置的自定义端点。
 - AI 阅读、对话、写作与术语提取会发送相应文本和功能使用的上下文。开启页面上下文辅助时，会使用页面摘要等内容。
-- YouTube 字幕从 YouTube 获取。播放器中的 FT 按钮控制字幕翻译，会议翻译处理平台已提供的字幕文本。当前实现不录制麦克风或视频音频。
+- YouTube 字幕从 YouTube 获取。播放器中的狐狸图标打开字幕菜单，会议翻译处理平台已提供的字幕文本。当前实现不录制麦克风或视频音频。
 - 设置页查询模型列表和测试连接时会访问配置端点，并可携带该服务的 API Key。
+- 选择连接 Foxmori 后，扩展通过已登录的主站读取账户和可用分组。点击创建密钥时，扩展将新建或复用该分组内名为 Foxmori 的密钥并保存在浏览器。密码和账户会话由主站处理。
 
 ### 脱敏范围
 
@@ -44,9 +46,11 @@ Foxtranslate is an open-source bilingual translation extension. The extension re
 - Page, selection, hover, input, document and subtitle features send text to the selected service.
 - Automatic site rules, hover and subtitle triggers can send text when activated.
 - Language detection may contact Google. Free-engine fallback and multi-engine comparison can contact several providers.
+- Built-in free services are Google Translate, Microsoft Translator, and MyMemory. Optional services include Foxmori, DeepL, OpenAI-compatible endpoints, DeepSeek, Claude, Gemini, LibreTranslate, and user-configured endpoints.
 - AI reading, chat, writing and term extraction send their input and the context used by that feature. Optional page-context assistance uses page summaries and related context.
-- Captions are retrieved from YouTube. The FT player button controls caption translation. Meeting translation processes captions supplied by the meeting platform. The current implementation does not record the microphone or video audio.
+- Captions are retrieved from YouTube. The fox icon opens the player caption menu. Meeting translation processes captions supplied by the meeting platform. The current implementation does not record the microphone or video audio.
 - Model discovery and connection tests in Settings can contact configured endpoints with the associated API Key.
+- Connecting Foxmori uses the signed-in website session to read the account and available groups. When you create a key, the extension saves a new or existing key named Foxmori for that group in this browser. Foxmori handles account passwords and session credentials.
 
 ### Optional masking
 

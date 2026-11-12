@@ -5,13 +5,14 @@
  * 仅管理 config.experts（activeId + list），所有修改即时通过 patchConfig 保存；
  * patchConfig 成功后 main.ts 会整体重渲染本标签页。
  *
- * 样式只复用 style.css 已有类名（card/field/control/btn/radio-item/tag 等），不新增 CSS。
  */
 import type { Config, ExpertPreset } from '../shared/config'
-import { BUILTIN_EXPERTS } from '../core/experts'
+import { BUILTIN_EXPERTS, getExpert } from '../core/experts'
 import { genId } from '../shared/ids'
 import { fmt, t, resolveUiLang } from '../shared/i18n'
 import { expertName } from '../shared/uiLabels'
+import { isAiProvider } from '../shared/engines'
+import { featureCopy } from '../shared/featureCopy'
 
 /** 模块级界面语言（renderExpertsTab 进入时设置；嵌套辅助函数共用） */
 let moduleUiLang: string = 'zh-CN'
@@ -32,6 +33,14 @@ type FormState =
 
 let formState: FormState = { mode: 'closed' }
 
+const PURPOSE: Readonly<Record<string, Parameters<typeof featureCopy>[0] | undefined>> = {
+  general: 'expertGeneral',
+  tech: 'expertTech',
+  literary: 'expertLiterary',
+  academic: 'expertAcademic',
+  social: 'expertSocial',
+}
+
 const PLACEHOLDER_HINT =
   ot('opt.experts.s1', '可用占位符：{{text}} 原文、{{to}} 目标语言、{{from}} 源语言、{{glossary}} 术语表（无术语时该行自动删除）。')
 
@@ -46,7 +55,8 @@ export function renderExpertsTab(root: HTMLElement, ctx: ExpertsTabCtx): void {
   // 归一兜底：存储里 experts 缺失/脏数据时用内置列表渲染，不写回（写回交给 normalizeConfig）
   const experts = config.experts ?? { activeId: 'general', list: BUILTIN_EXPERTS }
   const list = Array.isArray(experts.list) ? experts.list : BUILTIN_EXPERTS
-  const activeId = experts.activeId || 'general'
+  const active = getExpert(list, experts.activeId)
+  const applies = isAiProvider(config.engine.provider)
 
   const patchExperts = (next: { activeId: string; list: ExpertPreset[] }): void => {
     void patchConfig({ experts: next })
@@ -54,40 +64,40 @@ export function renderExpertsTab(root: HTMLElement, ctx: ExpertsTabCtx): void {
 
   // ===== 专家列表卡 =====
   const listCard = el('section', 'card')
-  listCard.append(el('h2', 'card-title', ot('opt.experts.s2', 'AI 专家')))
   listCard.append(
-    el(
-      'p',
-      'card-desc',
-      ot('opt.experts.s3', 'AI 专家仅在使用 AI 引擎（OpenAI 兼容/DeepSeek）时生效。每个专家定义一套 system/user prompt 翻译策略，单选其一作为当前生效策略。'),
-    ),
+    el('h2', 'card-title', featureCopy('expertStrategies', moduleUiLang)),
+    el('p', 'card-desc', featureCopy('expertEngines', moduleUiLang)),
+    el('p', 'feature-state', fmt(featureCopy(applies ? 'expertActive' : 'expertPending', moduleUiLang), {
+      p1: expertName(active, moduleUiLang),
+    })),
   )
 
   const group = el('div', 'radio-group')
   for (const expert of list) {
-    const item = el('div', 'radio-item')
-    item.style.width = '100%'
+    const item = el('div', 'radio-item expert-option')
+    const choice = el('label', 'expert-choice')
 
     const radio = el('input') as HTMLInputElement
     radio.type = 'radio'
     radio.name = 'tv-expert-active'
-    radio.checked = expert.id === activeId
+    radio.checked = expert.id === active.id
     radio.setAttribute('aria-label', fmt(ot('opt.experts.s4', '设为当前：{p1}'), { p1: expertName(expert, moduleUiLang) }))
     radio.addEventListener('change', () => {
-      if (radio.checked && expert.id !== activeId) {
+      if (radio.checked && expert.id !== active.id) {
         patchExperts({ activeId: expert.id, list })
       }
     })
 
     const textWrap = el('span', 'radio-text')
-    textWrap.style.flex = '1'
     const labelRow = el('span', 'radio-label')
     labelRow.append(el('span', undefined, expertName(expert, moduleUiLang)))
     const typeTag = el('span', 'tag', expert.builtin ? ot('opt.experts.s5', '内置') : ot('opt.experts.s6', '自定义'))
     typeTag.style.marginLeft = '8px'
     typeTag.style.padding = '2px 10px'
     labelRow.append(typeTag)
-    textWrap.append(labelRow, el('span', 'radio-desc', firstLine(expert.systemPrompt)))
+    const purpose = expert.builtin ? PURPOSE[expert.id] : undefined
+    textWrap.append(labelRow, el('span', 'radio-desc', purpose ? featureCopy(purpose, moduleUiLang) : firstLine(expert.systemPrompt)))
+    choice.append(radio, textWrap)
 
     const actions = el('span')
     actions.style.display = 'flex'
@@ -116,14 +126,14 @@ export function renderExpertsTab(root: HTMLElement, ctx: ExpertsTabCtx): void {
       delBtn.addEventListener('click', () => {
         const nextList = list.filter((e) => e.id !== expert.id)
         // 删除当前激活专家时回退到「通用」
-        const nextActive = expert.id === activeId ? 'general' : activeId
+        const nextActive = expert.id === active.id ? 'general' : active.id
         if (formState.mode !== 'closed') formState = { mode: 'closed' }
         patchExperts({ activeId: nextActive, list: nextList })
       })
       actions.append(editBtn, delBtn)
     }
 
-    item.append(radio, textWrap, actions)
+    item.append(choice, actions)
     group.append(item)
   }
   listCard.append(group)

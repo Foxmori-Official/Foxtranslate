@@ -1,11 +1,14 @@
 // background 入口：消息总线、快捷键命令、右键菜单、生词本 FSRS 评分。
 import { FSRS } from 'ts-fsrs'
+import { assertExtensionPage, getFoxmoriAccount, createFoxmoriKey, openFoxmoriLogin } from './foxmoriAccount'
+import { fetchProviderModels } from './models'
+import { mergeSubtitlePreferences } from '../shared/config'
 import { translate, translateTexts, detectLang, aiAssist, aiChat } from './translate'
 import { compareTranslate } from './compare'
 import { aiWrite } from './aiWrite'
 import { extractTermsWithAI } from './glossaryLibs'
 import { syncCustomEngines } from './engines'
-import { getConfig, setConfig, incrementTranslatedChars, getWords, addWord, deleteWord, updateWord, toFsrsCard, toWordCard, watchConfig } from '../shared/store'
+import { getConfig, setConfig, updateConfig, incrementTranslatedChars, getWords, addWord, deleteWord, updateWord, toFsrsCard, toWordCard, watchConfig } from '../shared/store'
 import { ok, err, type BgRequest, type BgResponse, type StatsResult, type TestEngineResult, type WordItem } from '../shared/protocol'
 
 const fsrs = new FSRS({})
@@ -20,6 +23,19 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
   const config = await getConfig()
   syncCustomEngines(config)
   switch (msg.kind) {
+    case 'foxmoriLogin':
+      assertExtensionPage(sender)
+      await openFoxmoriLogin()
+      return null
+    case 'foxmoriAccount':
+      assertExtensionPage(sender)
+      return getFoxmoriAccount()
+    case 'foxmoriCreateKey':
+      assertExtensionPage(sender)
+      return createFoxmoriKey(msg.groupId, msg.accountId)
+    case 'fetchModels':
+      assertExtensionPage(sender)
+      return fetchProviderModels(config, msg.provider)
     case 'translate': {
       const result = await translate(msg.text, { targetLang: msg.targetLang, sourceLang: msg.sourceLang, context: msg.context }, config)
       await incrementTranslatedChars(msg.text.length)
@@ -52,6 +68,13 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       const next = await setConfig(msg.patch)
       return next
     }
+    case 'setSubtitlePreferences': {
+      if (!sender?.url?.startsWith('https://www.youtube.com/')) assertExtensionPage(sender)
+      const next = await updateConfig(current => ({
+        subtitles: mergeSubtitlePreferences(current.subtitles, msg.patch),
+      }))
+      return next.subtitles
+    }
     case 'saveWord':
       return addWord(msg)
     case 'deleteWord':
@@ -83,21 +106,23 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       return stats
     }
     case 'testEngine': {
-      // 连通性测试：复用 translate() 管线把 "Hello" 译到目标语言；失败返回错误原话（不抛出，让设置页原样展示）
+      if (msg.provider !== undefined) assertExtensionPage(sender)
+      const engine = msg.provider ?? config.engine.provider
+      const testConfig = { ...config, engine: { ...config.engine, provider: engine } }
       const started = Date.now()
       try {
-        const result = await translate('Hello', { targetLang: config.general.targetLang, bypassCache: true, exactProvider: true }, config)
+        const result = await translate('Hello', { targetLang: config.general.targetLang, bypassCache: true, exactProvider: true }, testConfig)
         const out: TestEngineResult = {
           ok: true,
           text: result.text,
-          engine: config.engine.provider,
+          engine,
           elapsedMs: Date.now() - started,
         }
         return out
       } catch (e) {
         const out: TestEngineResult = {
           ok: false,
-          engine: config.engine.provider,
+          engine,
           elapsedMs: Date.now() - started,
           error: e instanceof Error ? e.message : String(e),
         }
@@ -124,6 +149,10 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       }
       if (msg.cmd === 'openOptions') {
         await chrome.runtime.openOptionsPage()
+        return null
+      }
+      if (msg.cmd === 'openVideoOptions') {
+        await chrome.tabs.create({ url: chrome.runtime.getURL('options.html#video') })
         return null
       }
       const page = msg.cmd === 'openFiles' ? 'files.html' : 'review.html'

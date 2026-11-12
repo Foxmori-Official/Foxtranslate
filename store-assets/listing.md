@@ -1,89 +1,34 @@
-# 商店上架素材包 / Store Listing Pack
+# Foxtranslate 商店资料
 
-> 使用前：把 PRIVACY.md 部署到一个公开可访问的 URL（如 GitHub Pages），
-> 替换下文中的 `https://YOUR-DOMAIN/foxtranslate/privacy` 占位符。
+从待提交版本的 `public/_locales/<locale>/messages.json` 复制 `extName` 与 `extDescription`。详情页文案在[各语言模板](../docs/store-listing/)中。截图使用待发布安装包实际渲染的页面。
 
-## 基础信息
+隐私政策使用公开的 [Foxtranslate 隐私政策](https://github.com/Foxmori-Official/Foxtranslate/blob/main/PRIVACY.md)。扩展内「设置 → 隐私」也有入口。
 
-| 字段 | 值 |
-|---|---|
-| 名称 | Foxtranslate - 开源双语翻译 |
-| 副标题/短描述（≤132 字符） | 开源双语对照翻译：多引擎、本地脱敏、生词闪卡。无账号、无遥测。 |
-| 分类 | 工具 / 效率（Productivity） |
-| 语言 | 简体中文（默认）、English |
-| 搜索关键词（≤7 个） | 翻译, 双语翻译, 网页翻译, 划词翻译, 翻译插件, 生词本, 沉浸式翻译开源替代 |
-| 官网/支持 | https://www.aimao.today |
-| 隐私政策 URL | https://YOUR-DOMAIN/foxtranslate/privacy（部署 PRIVACY.md 后替换） |
-| 年龄分级 | 非成人内容（无 13+ 限制项） |
+## 权限说明
 
-## 详细描述（中文）
+| 权限 | 用途 |
+| --- | --- |
+| `storage` | 在浏览器保存设置、API Key、翻译缓存、生词和复习进度 |
+| `contextMenus` | 提供网页翻译和打开扩展设置的右键入口 |
+| `content_scripts` 的网站匹配 | 在网页上执行用户配置的整页、划词和输入框翻译，在指定视频与会议页面处理字幕 |
+| `host_permissions` | 请求内置翻译服务；用户连接 Foxmori 时，通过主站读取账户和可用分组，并按操作创建或复用密钥 |
+| `optional_host_permissions` | 为用户配置的自定义翻译端点申请相应域名权限 |
 
-Foxtranslate是一款完全开源（GPL-3.0）的浏览器双语翻译扩展，综合了多个优秀开源翻译项目的最佳实践。无账号、无遥测、无中间服务器。
+翻译和 AI 功能会向服务发送所需文本，自动翻译等开关也可触发请求。连接 Foxmori 是可选操作。数据申报以待审版本的实际行为与隐私政策为依据。
 
-**核心功能**
+## 审核测试说明
 
-- 整页双语对照翻译：原文对照译文，滚动到可见区域才翻译，支持 12 种译文样式（柔和灰/高亮/卡片/引用/渐变/毛玻璃等）
-- 多翻译引擎：谷歌/微软/MyMemory 免费引擎开箱即用（失败自动切换），也支持 DeepL、OpenAI 兼容接口（OpenAI/DeepSeek/任意兼容端点）、LibreTranslate（可自托管）与自定义接口
-- 聚合翻译：AI 引擎自动合并多段文本一次请求，更快更省额度
-- 隐私保护：可开启本地敏感信息脱敏——邮箱/电话/银行卡/身份证/API Key 在发送前本地打码，译文返回后还原，敏感原文永不出浏览器
-- 划词翻译、悬停翻译、输入框翻译（Alt+Enter）
-- AI 阅读辅助：释义、句型分析、用法讲解、练习生成
-- 生词本 + FSRS 闪卡复习：收藏生词，按记忆曲线四键评分复习
-- 术语表：自定义术语保证译法一致
-- 悬浮球、Alt+T 快捷键、右键菜单
+1. Load the extension and open an ordinary webpage. Use the toolbar action to translate the page with the default free engine.
+2. Select text to open the translation bubble and save a word. Open Vocabulary from the popup to review it.
+3. Open Settings to switch the display mode or review the optional engine settings. For YouTube, use a regular watch page with a readable caption track.
+4. Open the Privacy tab and follow the privacy policy link to see how local storage and provider requests are handled.
 
-**隐私**
+## 构建
 
-- 不收集浏览历史、无追踪、无广告
-- 网页文本仅在你主动翻译时发送到你选择的翻译服务商
-- 卸载即清除全部本地数据
+```sh
+npm run build:store
+npm run verify:package
+node scripts/zip-dist.mjs
+```
 
-详见隐私政策：https://YOUR-DOMAIN/foxtranslate/privacy
-
-## Detailed Description (English)
-
-Foxtranslate is a fully open-source (GPL-3.0) bilingual webpage translation extension, synthesizing the best practices of several excellent open-source translation projects. No account, no telemetry, no middle servers.
-
-**Key features**
-
-- Bilingual page translation with 12 display styles (soft gray, highlight, card, quote, gradient, frosted glass…)
-- Multiple engines: Google/Microsoft/MyMemory free engines with automatic failover; DeepL, OpenAI-compatible endpoints (OpenAI/DeepSeek/any compatible endpoint), self-hostable LibreTranslate, and custom JSON endpoints
-- Batched translation for AI engines (fewer requests, lower cost)
-- Local sensitive-data masking (optional): emails, phones, bank cards, ID numbers and API keys are masked locally before translation and restored afterwards — sensitive text never leaves your browser
-- Selection translation, hover translation, input-box translation (Alt+Enter)
-- AI reading assistance: meaning, grammar analysis, usage, practice
-- Wordbook with FSRS flashcard review
-- Glossary for consistent terminology
-- Floating ball, Alt+T shortcut, context menu
-
-**Privacy**
-
-- No browsing-history collection, no tracking, no ads
-- Page text is sent to the translation provider you choose only when you request translation
-- Uninstalling removes all local data
-
-Privacy policy: https://YOUR-DOMAIN/foxtranslate/privacy
-
-## 截图清单（9 语言 × 3 张，1280×800，真实渲染）
-
-截图位于 `store-assets/screenshots/<locale>/`，每语言 3 张：
-
-1. `screenshot-1-bilingual.png` — 整页双语对照（英文原文 + 目标语言译文；en 语言为中文原文 + 英文译文）
-2. `screenshot-2-selection.png` — 划词翻译气泡（目标语言译文）
-3. `screenshot-3-options.png` — 设置页（目标界面语言）
-
-| locale 目录 | 界面语言 | 译文语言 | 原文语言 |
-|---|---|---|---|
-| en | English | English | 中文 |
-| de / es / fr / pt_BR / ja / zh_CN / zh_TW / ko | 各自语言 | 各自语言 | English |
-
-生成方式：`node scripts/e2e/shot-all-langs.mjs`（AI猫引擎真实翻译后 CDP 截图，非合成图）。
-
-## 审核测试说明（Notes for certification，Edge Partner Center 用）
-
-- 默认使用谷歌免费引擎，无需登录即可测试全部翻译功能：打开任意英文网页 → 点击悬浮球或按 Alt+T
-- 划词翻译：选中任意段落后弹出气泡自动翻译
-- 输入框翻译：在任意输入框按 Alt+Enter（默认中→英）
-- 脱敏测试：设置 → 隐私 → 开启敏感信息脱敏 → 翻译含邮箱的页面，邮箱在译文中保持原样
-- 生词本/闪卡：划词气泡点"☆ 收藏"，popup 点"开始复习"
-- BYOK 引擎（DeepL/OpenAI 兼容）为可选项，需审核员自有密钥方可测试；免费引擎不依赖任何账号
+商店截图和宣传图保存在本地 `store-assets/screenshots/` 和 `store-assets/promo/`。参考[发布与验收指南](../docs/UPDATING.md)核对安装包。

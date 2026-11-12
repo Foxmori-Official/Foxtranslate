@@ -161,7 +161,7 @@ describe('onboarding 页', () => {
       ).toBe(true)
     })
 
-    // 引擎：默认 google（DEFAULT_CONFIG），按钮带 16px 图标；AI猫在列表第一位
+    // 引擎：默认 google（DEFAULT_CONFIG），按钮带 16px 图标；Foxmori在列表第一位
     await vi.waitFor(() => expect(q<HTMLButtonElement>('.ob-engine-btn').disabled).toBe(false))
     const engineBtn = q<HTMLButtonElement>('.ob-engine-btn')
     const btnIcon = engineBtn.querySelector<HTMLImageElement>('.ob-engine-icon')
@@ -169,9 +169,9 @@ describe('onboarding 页', () => {
     expect(btnIcon?.width).toBe(16)
     engineBtn.click()
     const items = Array.from(document.querySelectorAll<HTMLElement>('.ob-engine-item'))
-    expect(items[0]?.dataset.engineId).toBe('aimao')
+    expect(items[0]?.dataset.engineId).toBe('foxmori')
     expect(items[0]?.querySelector('.ob-engine-icon')?.getAttribute('src')).toBe(
-      'engine-icons/aimao.png',
+      'icons/icon48.png',
     )
 
     // 选择 DeepL → 立即收到 engine.provider patch

@@ -1,105 +1,105 @@
+/// <reference types="vite/client" />
+import policy from '../../PRIVACY.md?raw'
 import { appSidebar } from '../shared/appShell'
-// 隐私政策页：内置页面，不跳转外部站点。仅英文（商店审核语言）。
+import type { Config } from '../shared/config'
+import { featureCopy } from '../shared/featureCopy'
+import { resolveUiLang } from '../shared/i18n'
+import { uiCopy } from '../shared/interface'
+import type { BgResponse } from '../shared/protocol'
 
-interface PrivacySection {
-  title: string
-  body?: string[]
-  list?: string[]
+type Language = 'zh-CN' | 'en'
+
+function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag)
+  if (text) node.textContent = text
+  return node
 }
 
-interface PrivacyContent {
-  updated: string
-  sections: PrivacySection[]
-}
-
-const EN: PrivacyContent = {
-  updated: '2026-11-11',
-  sections: [
-    {
-      title: 'Who we are',
-      body: ['Foxtranslate is an open-source browser translation extension (GPL-3.0). This extension has no servers: we operate no backend, collect no analytics, show no ads, and have no accounts.'],
-    },
-    {
-      title: 'What data the extension handles',
-      body: ['Translation and AI features send text to the selected service. Automatic page translation, hover, input and subtitle features can send text when triggered. Free-engine fallback and comparisons can contact more than one provider. YouTube captions are retrieved from YouTube; language detection can contact Google.'],
-      list: [
-        'Free engines: Google Translate, Microsoft Translator, MyMemory',
-        'Bring-your-own-key engines: DeepL, OpenAI-compatible endpoints (OpenAI / DeepSeek / any compatible endpoint), Claude, Gemini, self-hostable LibreTranslate, AI Mao',
-      ],
-    },
-    {
-      title: 'Optional sensitive-data masking',
-      body: ['You can enable "Sensitive data masking" in settings: email addresses, phone numbers, bank card numbers, ID numbers, and API keys are replaced with placeholders locally in your browser before being sent for translation, and restored locally afterwards. Masking attempts to cover recognized patterns in the translation pipeline. It does not guarantee detection of every sensitive value, and language detection, AI actions and extra page context may follow different processing paths.'],
-    },
-    {
-      title: 'API keys',
-      body: ['Keys you enter (DeepL / OpenAI, etc.) are stored only in chrome.storage.local and are used solely to authenticate requests to the provider you configured. Local browser storage is not an encrypted vault. Translation caches can contain restored sensitive text.'],
-    },
-    {
-      title: 'Wordbook',
-      body: ['Saved words and flashcard review records stay in local browser storage and are never uploaded.'],
-    },
-    {
-      title: 'What we do NOT do',
-      list: [
-        'No browsing-history collection, no behavior tracking, no telemetry or analytics',
-        'No sale, sharing, or transfer of user data',
-        'No ads, no browser-setting changes',
-        'No remote code execution (all program logic ships inside the extension package)',
-      ],
-    },
-    {
-      title: 'Your controls',
-      list: [
-        'Switch translation engines anytime; choose self-hosted engines so text never leaves your network',
-        'Enable masking to protect sensitive content',
-        'Delete local data through the browser extension storage tools or uninstall the extension. This does not recall data already sent to providers.',
-      ],
-    },
-  ],
-}
-
-const app = document.getElementById('app')!
-if (app) {
-  document.documentElement.lang = 'en'
-  app.className = 'fox-shell'
-  const content = document.createElement('main')
-  content.className = 'wrap fox-main'
-  app.append(appSidebar('privacy', 'en'), content)
-
-  const brand = document.createElement('div')
-  brand.className = 'brand'
-  const logo = document.createElement('img')
-  logo.src = chrome.runtime.getURL('icons/icon128.png')
-  logo.alt = 'Foxtranslate'
-  const name = document.createElement('span')
-  name.className = 'brand-name'
-  name.textContent = 'Foxtranslate'
-  brand.append(logo, name)
-  content.appendChild(brand)
-
-  const updated = document.createElement('p')
-  updated.className = 'updated'
-  updated.textContent = `Effective date: ${EN.updated}`
-  content.appendChild(updated)
-
-  for (const sec of EN.sections) {
-    const h = document.createElement('h2')
-    h.textContent = sec.title
-    content.appendChild(h)
-    for (const p of sec.body ?? []) {
-      const el = document.createElement('p')
-      el.textContent = p
-      content.appendChild(el)
+function appendInline(parent: HTMLElement, text: string): void {
+  let offset = 0
+  const tokens = /\x60([^\x60]+)\x60|\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g
+  for (const match of text.matchAll(tokens)) {
+    parent.append(text.slice(offset, match.index))
+    if (match[1]) {
+      parent.append(element('code', match[1]))
+    } else {
+      const link = element('a', match[2])
+      link.href = match[3]
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      parent.append(link)
     }
-    if (sec.list) {
-      const ul = document.createElement('ul')
-      for (const item of sec.list) {
-        const li = document.createElement('li')
-        li.textContent = item
-        ul.appendChild(li)
+    offset = match.index + match[0].length
+  }
+  parent.append(text.slice(offset))
+}
+
+function renderPolicy(content: HTMLElement, body: string): void {
+  for (const block of body.trim().split(/\n\s*\n/)) {
+    if (block.startsWith('### ')) {
+      content.append(element('h2', block.slice(4)))
+    } else if (block.startsWith('- ')) {
+      const list = element('ul')
+      for (const line of block.split('\n')) {
+        const item = element('li')
+        appendInline(item, line.replace(/^- /, ''))
+        list.append(item)
       }
-      content.appendChild(ul)
+      content.append(list)
+    } else {
+      const paragraph = element('p')
+      appendInline(paragraph, block)
+      content.append(paragraph)
     }
   }
 }
+
+async function pageLanguage(): Promise<Language> {
+  const explicit = new URL(location.href).searchParams.get('lang')
+  if (explicit === 'zh-CN' || explicit === 'en') return explicit
+  let lang = 'auto'
+  try {
+    const response = await chrome.runtime.sendMessage({ kind: 'getConfig' }) as BgResponse<Config>
+    if (response.ok) lang = response.data.uiLang
+  } catch {
+    // The bundled policy can be read before the service worker is ready.
+  }
+  return resolveUiLang(lang).startsWith('zh') ? 'zh-CN' : 'en'
+}
+
+async function init(): Promise<void> {
+  const app = document.getElementById('app')
+  if (!app) return
+  const lang = await pageLanguage()
+  const [intro, chinese, english] = policy.split(/^## (?:中文|English)\s*$/m)
+  const date = intro.match(/\d{4}-\d{2}-\d{2}/)?.[0]
+
+  document.documentElement.lang = lang
+  document.title = `${uiCopy('privacy', lang)} · Foxtranslate`
+  app.className = 'fox-shell'
+  const content = element('main')
+  content.className = 'wrap fox-main'
+  const settings = element('a', featureCopy('backToPrivacySettings', lang))
+  settings.className = 'privacy-back'
+  settings.href = chrome.runtime.getURL('options.html#privacy')
+  const langs = element('nav')
+  langs.className = 'lang-switch'
+  langs.setAttribute('aria-label', lang === 'zh-CN' ? '政策语言' : 'Policy language')
+  for (const [id, name] of [['zh-CN', '简体中文'], ['en', 'English']] as const) {
+    const link = element('a', name)
+    link.href = '?lang=' + id
+    link.hreflang = link.lang = id
+    if (id === lang) link.setAttribute('aria-current', 'page')
+    langs.append(link)
+  }
+  content.append(settings, element('h1', uiCopy('privacy', lang)), langs)
+  if (date) {
+    const updated = element('p', (lang === 'zh-CN' ? '生效日期 ' : 'Effective date ') + date)
+    updated.className = 'updated'
+    content.append(updated)
+  }
+  renderPolicy(content, lang === 'zh-CN' ? chinese : english)
+  app.append(appSidebar('privacy', lang), content)
+}
+
+void init()

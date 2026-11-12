@@ -43,7 +43,8 @@ Read foreign-language pages as naturally as your native tongue. Foxtranslate is 
 
 🔒 PRIVACY
 
-No account, no telemetry, no middle servers. Settings and API keys stay in the browser's local storage. With masking on, sensitive data never leaves your device unmasked — placeholders go out, the result is restored locally.
+Free engines work without signing in. Foxtranslate includes no telemetry. Settings, keys, and saved words are stored locally. Translation and AI features send text to the relevant services. Optional masking covers recognized patterns in the translation pipeline.
+https://github.com/Foxmori-Official/Foxtranslate/blob/main/PRIVACY.md
 
 💬 SUPPORT
 

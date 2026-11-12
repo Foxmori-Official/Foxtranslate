@@ -11,6 +11,7 @@
 
 import type { Config } from '../shared/config'
 import type { AiChatMessage } from '../shared/protocol'
+import { isAiProvider } from '../shared/engines'
 import { maskSensitive, restoreSensitive, type MaskEntity } from '../core/mask'
 import {
   applyGlossary,
@@ -23,7 +24,7 @@ import { textHash } from '../core/text'
 import { scriptStats } from '../core/detect'
 import { langName } from '../core/langs'
 import { BUILTIN_EXPERTS } from '../core/experts'
-import { ENGINES, FREE_CHAIN, resolveEngine, AIMAO_ENDPOINT } from './engines'
+import { ENGINES, FREE_CHAIN, resolveEngine, FOXMORI_ENDPOINT } from './engines'
 import type { Engine, EngineContext, EngineResult } from './engines'
 import { getFetch } from './engines/fetch'
 import { cacheKey, get as cacheGet, set as cacheSet } from './cache'
@@ -91,17 +92,7 @@ function sigOf(terms: GlossaryTerm[]): string {
 
 // ── 全页摘要上下文感知（仅 AI 引擎生效）─────────────────────────────────────
 
-/** AI 类 provider：openai/deepseek/claude/gemini/aimao。 */
-const AI_PROVIDERS = new Set(['openai', 'deepseek', 'claude', 'gemini', 'aimao'])
-
-/**
- * 是否 AI 类 provider（aiAssist / aiChat / aiWrite 共用的准入判定）：
- * 内置 AI 名单（openai/deepseek/claude/gemini/aimao），或 custom:<id> 动态
- * 自定义引擎实例（OpenAI 兼容协议，天然是 AI 引擎）。
- */
-export function isAiProvider(provider: string): boolean {
-  return AI_PROVIDERS.has(provider) || provider.startsWith('custom:')
-}
+export { isAiProvider } from '../shared/engines'
 
 /**
  * 是否 AI 类引擎：provider 命中 AI 判定，或引擎声明 supportsBatch（编号 JSON
@@ -154,7 +145,7 @@ function effectiveContext(opts: TranslateOptions, providerId: string): string | 
  * 不同页面（上下文不同）的同文翻译不串缓存；无上下文时 key 与旧版完全一致。
  */
 function keyFor(
-  engineId: string,
+  config: Config,
   from: string,
   to: string,
   text: string,
@@ -162,7 +153,9 @@ function keyFor(
   context?: string,
 ): string {
   const sig = context ? `${sigOf(terms)}|ctx:${textHash(context)}` : sigOf(terms)
-  return cacheKey({ engine: engineId, from, to, text, promptSig: sig })
+  const { provider, foxmori } = config.engine
+  const engine = provider === 'foxmori' ? `foxmori:${encodeURIComponent(foxmori.model.trim())}` : provider
+  return cacheKey({ engine, from, to, text, promptSig: sig })
 }
 
 // ── 引擎路由 ────────────────────────────────────────────────────────────────
@@ -225,8 +218,8 @@ export function endpointUrlOf(config: Config): string | null {
       return 'https://api.anthropic.com'
     case 'gemini':
       return 'https://generativelanguage.googleapis.com'
-    case 'aimao':
-      return AIMAO_ENDPOINT
+    case 'foxmori':
+      return FOXMORI_ENDPOINT
     case 'libretranslate':
       return config.engine.keys.libreUrl || 'https://libretranslate.com'
     case 'custom':
@@ -289,7 +282,11 @@ async function routePrepared(
         maxChars: config.batch.maxChars,
         concurrency: config.batch.concurrency,
       },
-      { fallbackSingles: (t) => engine.translate(t, from, to, ctx).then((r) => r.text) },
+      {
+        fallbackSingles: (t) => engine.translate(t, from, to, ctx).then((r) => r.text),
+        // In memory only. Rotate the queue when a different account key or model is selected.
+        configuration: engine.id === 'foxmori' ? JSON.stringify([config.engine.keys.foxmori, config.engine.foxmori.model]) : undefined,
+      },
     )
     const text = await queue.addTask(prepared)
     return { text }
@@ -312,7 +309,7 @@ export async function translate(
   const to = opts.targetLang
   const terms = await resolveEffectiveGlossary(config)
   const context = effectiveContext(opts, config.engine.provider)
-  const key = keyFor(config.engine.provider, from, to, text, terms, context)
+  const key = keyFor(config, from, to, text, terms, context)
   const cached = await cacheGet(key)
   if (!opts.bypassCache && cached !== undefined) return { text: cached }
 
@@ -341,7 +338,7 @@ export async function translateTexts(
   const pendingIdx: number[] = []
 
   for (let i = 0; i < texts.length; i++) {
-    const key = keyFor(config.engine.provider, from, to, texts[i], terms, context)
+    const key = keyFor(config, from, to, texts[i], terms, context)
     const cached = await cacheGet(key)
     if (cached !== undefined) {
       results[i] = cached
@@ -354,7 +351,7 @@ export async function translateTexts(
 
   const writeBack = async (i: number, restored: string): Promise<void> => {
     results[i] = restored
-    await cacheSet(keyFor(config.engine.provider, from, to, texts[i], terms, context), restored)
+    await cacheSet(keyFor(config, from, to, texts[i], terms, context), restored)
   }
 
   if (engine.supportsBatch && config.batch.enabled) {
@@ -439,7 +436,7 @@ const AI_PROVIDER_ERROR = '请先在设置页配置 AI 引擎'
 /**
  * AI 兼容端点解析（aiAssist / aiChat / aiWrite 共用，导出供 aiWrite 与单测）：
  * - openai/deepseek：各自 config 段的 endpoint/model，key 共用 keys.openai
- * - aimao：固定端点 AIMAO_ENDPOINT，key 走 keys.aimao，model 走 engine.aimao.model
+ * - foxmori：固定端点 FOXMORI_ENDPOINT，key 走 keys.foxmori，model 走 engine.foxmori.model
  * - custom:<id>：endpoint/model/apiKey 均取 config.engine.customEngines 里的 entry
  * 非 AI provider、缺 key、或 custom 条目缺失时抛配置引导错误。
  * claude/gemini 为原生协议引擎，阅读辅助/写作的 OpenAI 兼容通道暂不支持（同旧行为抛引导错误）。
@@ -458,12 +455,12 @@ export function resolveAiEndpoint(config: Config): { base: string; model: string
       apiKey: config.engine.keys.openai,
     }
   }
-  if (provider === 'aimao') {
-    if (!config.engine.keys.aimao.trim()) throw new Error(AI_PROVIDER_ERROR)
+  if (provider === 'foxmori') {
+    if (!config.engine.keys.foxmori.trim() || !config.engine.foxmori.model.trim()) throw new Error(AI_PROVIDER_ERROR)
     return {
-      base: AIMAO_ENDPOINT,
-      model: config.engine.aimao.model,
-      apiKey: config.engine.keys.aimao,
+      base: FOXMORI_ENDPOINT,
+      model: config.engine.foxmori.model,
+      apiKey: config.engine.keys.foxmori,
     }
   }
   if (provider.startsWith('custom:')) {

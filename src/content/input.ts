@@ -24,7 +24,7 @@ function isEditable(el: EventTarget | null): HTMLElement | null {
   if (el instanceof HTMLTextAreaElement) return el
   if (el instanceof HTMLInputElement) {
     const t = el.type
-    return ['text', 'search', 'url', 'email', 'password', ''].includes(t) ? el : null
+    return ['text', 'search', 'url', 'email', ''].includes(t) ? el : null
   }
   if (el.isContentEditable || el.getAttribute('contenteditable') === 'true') return el
   return null

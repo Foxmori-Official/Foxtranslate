@@ -1,6 +1,6 @@
 // 单语言商店截图（真实渲染，非合成）：
 //   1. 关闭所有扩展页标签（防 onboarding/options 陈旧配置回写覆盖注入值）
-//   2. 在 Service Worker 上下文注入配置：AI猫引擎 + uiLang + targetLang
+//   2. 在 Service Worker 上下文注入配置：Foxmori引擎 + uiLang + targetLang
 //   3. chrome.tabs.sendMessage 触发整页翻译，轮询至译文稳定且零错误
 //   4. 截图×3：双语整页 / 划词气泡 / 设置页（目标界面语言）
 // 用法：node shot-one-lang.mjs <uiLang> <targetLang> <outDir> [pagePath]
@@ -14,9 +14,9 @@ const CDP = 'http://127.0.0.1:9222'
 const EXT = 'chrome-extension://obommjidieecapideeemdlcegndcdnkd'
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'store-assets', 'screenshots')
 
-const AIMAO_KEY = process.env.AIMAO_KEY ?? ''
-if (!AIMAO_KEY) { console.error('请先设置环境变量 AIMAO_KEY'); process.exit(1) }
-const AIMAO_MODEL = 'glm-5.3-flash'
+const FOXMORI_KEY = process.env.FOXMORI_KEY ?? ''
+if (!FOXMORI_KEY) { console.error('请先设置环境变量 FOXMORI_KEY'); process.exit(1) }
+const FOXMORI_MODEL = 'glm-5.3-flash'
 
 const [uiLang, targetLang, dirName, pagePath = 'test-page-shot.html'] = process.argv.slice(2)
 if (!uiLang || !targetLang || !dirName) {
@@ -100,9 +100,9 @@ const cfgJson = await swEval(`(async () => {
   cur.onboardingCompleted = true;
   cur.general = Object.assign({}, cur.general, { targetLang: ${JSON.stringify(targetLang)} });
   cur.engine = Object.assign({}, cur.engine, {
-    provider: 'aimao',
-    keys: Object.assign({}, cur.engine && cur.engine.keys, { aimao: ${JSON.stringify(AIMAO_KEY)} }),
-    aimao: Object.assign({}, cur.engine && cur.engine.aimao, { model: ${JSON.stringify(AIMAO_MODEL)} }),
+    provider: 'foxmori',
+    keys: Object.assign({}, cur.engine && cur.engine.keys, { foxmori: ${JSON.stringify(FOXMORI_KEY)} }),
+    foxmori: Object.assign({}, cur.engine && cur.engine.foxmori, { model: ${JSON.stringify(FOXMORI_MODEL)} }),
   });
   await chrome.storage.local.set({ [KEY]: cur });
   const back = (await chrome.storage.local.get(KEY))[KEY] || {};
@@ -110,13 +110,13 @@ const cfgJson = await swEval(`(async () => {
     uiLang: back.uiLang,
     targetLang: back.general && back.general.targetLang,
     provider: back.engine && back.engine.provider,
-    keyPrefix: String(back.engine && back.engine.keys && back.engine.keys.aimao || '').slice(0, 5),
-    model: back.engine && back.engine.aimao && back.engine.aimao.model,
+    keyConfigured: Boolean(back.engine && back.engine.keys && back.engine.keys.foxmori),
+    model: back.engine && back.engine.foxmori && back.engine.foxmori.model,
   });
 })()`)
 const cfg = JSON.parse(cfgJson || '{}')
 console.log('config:', cfgJson)
-if (cfg.provider !== 'aimao' || cfg.keyPrefix !== 'sk-f0' || cfg.model !== AIMAO_MODEL) {
+if (cfg.provider !== 'foxmori' || !cfg.keyConfigured || cfg.model !== FOXMORI_MODEL) {
   throw new Error('config injection failed: ' + cfgJson)
 }
 if (cfg.uiLang !== uiLang || cfg.targetLang !== targetLang) {

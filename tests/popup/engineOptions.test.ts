@@ -7,16 +7,16 @@ function cfg(customEngines: Config['engine']['customEngines'] = []): Config {
 }
 
 describe('getEngineOptions', () => {
-  it('aimao 排第一', () => {
+  it('foxmori 排第一', () => {
     const options = getEngineOptions(cfg())
-    expect(options[0].id).toBe('aimao')
-    expect(options[0].name).toBe('aimao')
+    expect(options[0].id).toBe('foxmori')
+    expect(options[0].name).toBe('Foxmori')
   })
 
-  it('内置引擎顺序：aimao 后依次为 google/bing/mymemory/deepl/openai/deepseek/claude/gemini/libretranslate', () => {
+  it('内置引擎顺序：foxmori 后依次为 google/bing/mymemory/deepl/openai/deepseek/claude/gemini/libretranslate', () => {
     const ids = getEngineOptions(cfg()).map((o) => o.id)
     expect(ids).toEqual([
-      'aimao',
+      'foxmori',
       'google',
       'bing',
       'mymemory',
@@ -43,8 +43,8 @@ describe('getEngineOptions', () => {
 })
 
 describe('引擎图标映射', () => {
-  it('aimao 与用户提供的图标用 png，其余内置引擎用同名 svg', () => {
-    expect(engineIconFor('aimao')).toBe('engine-icons/aimao.png')
+  it('foxmori 与用户提供的图标用 png，其余内置引擎用同名 svg', () => {
+    expect(engineIconFor('foxmori')).toBe('icons/icon48.png')
     expect(engineIconFor('mymemory')).toBe('engine-icons/mymemory.png')
     expect(engineIconFor('libretranslate')).toBe('engine-icons/libretranslate.png')
     for (const id of ['google', 'bing', 'deepl', 'openai', 'deepseek', 'claude', 'gemini']) {

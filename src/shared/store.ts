@@ -38,9 +38,13 @@ export async function getConfig(): Promise<Config> {
 }
 
 export function setConfig(patch: Partial<Config>): Promise<Config> {
+  return updateConfig(() => patch)
+}
+
+export function updateConfig(patch: (current: Config) => Partial<Config>): Promise<Config> {
   return mutate(async () => {
     const current = await getConfig()
-    const next = normalizeConfig({ ...current, ...patch, version: 1 })
+    const next = normalizeConfig({ ...current, ...patch(current), version: 1 })
     await storageSet({ [KEY_CONFIG]: next })
     return next
   })

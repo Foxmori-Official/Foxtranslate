@@ -17,10 +17,10 @@ function cfgWithCustomEngines(): Config {
 }
 
 describe("getEngineOptions", () => {
-  it("aimao 排第一，内置引擎按固定顺序随后", () => {
+  it("foxmori 排第一，内置引擎按固定顺序随后", () => {
     const opts = getEngineOptions(structuredClone(DEFAULT_CONFIG));
     expect(opts.map((o) => o.id)).toEqual([
-      "aimao",
+      "foxmori",
       "google",
       "bing",
       "mymemory",
@@ -31,8 +31,8 @@ describe("getEngineOptions", () => {
       "gemini",
       "libretranslate",
     ]);
-    expect(opts[0].name).toBe("aimao");
-    expect(opts[0].icon).toContain("aimao");
+    expect(opts[0].name).toBe("Foxmori");
+    expect(opts[0].icon).toBe("icons/icon48.png");
   });
 
   it("customEngines 追加在内置引擎之后，id 带 custom: 前缀，name 取 entry.name", () => {

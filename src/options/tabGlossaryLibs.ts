@@ -16,9 +16,11 @@ import {
   listBuiltinLibraries,
   loadBuiltinLibrary,
   parseGlossaryCsv,
+  supportsTermExtraction,
   type BuiltinLibraryMeta,
 } from '../background/glossaryLibs'
 import { fmt, t, resolveUiLang } from '../shared/i18n'
+import { featureCopy } from '../shared/featureCopy'
 
 /** 模块级界面语言（renderGlossaryLibsTab 进入时设置；sendBg 等无 ctx 的辅助函数用） */
 let moduleUiLang: string = 'zh-CN'
@@ -56,7 +58,6 @@ function libsOf(config: Config): GlossaryLibs {
 
 interface ExtractState {
   text: string
-  busy: boolean
   error: string
   results: GlossaryTerm[]
   checked: Set<number>
@@ -66,13 +67,13 @@ interface ExtractState {
 
 const extractState: ExtractState = {
   text: '',
-  busy: false,
   error: '',
   results: [],
   checked: new Set<number>(),
   targetLibId: '',
   notice: '',
 }
+let extraction: Promise<void> | null = null
 
 export function renderGlossaryLibsTab(root: HTMLElement, ctx: GlossaryLibsTabCtx): void {
   moduleUiLang = resolveUiLang(ctx.config.uiLang)
@@ -102,7 +103,7 @@ function buildBuiltinCard(
     el(
       'p',
       'card-desc',
-      ot('opt.glossaryLibs.s3', '内置库来自沉浸式翻译术语表（github.com/immersive-translate/terms）。AI 术语库仅在使用 AI 翻译时生效；启用后命中术语将以占位符保护并保证译法一致。'),
+      featureCopy('libraryScope', ctx.config.uiLang),
     ),
   )
 
@@ -132,7 +133,7 @@ function buildBuiltinCard(
     if (!listWrap.isConnected) return
     listWrap.replaceChildren()
     metas.forEach((meta, i) => {
-      const row = el('div', 'field')
+      const row = el('div', 'field library-row')
       const labelWrap = el('span', 'field-label')
       labelWrap.append(el('span', undefined, moduleUiLang === 'zh-CN' ? meta.zhName : meta.name))
       const countText = counts[i] >= 0 ? fmt(ot('opt.glossaryLibs.s6', '{p1} 条'), { p1: counts[i] }) : ot('opt.glossaryLibs.s7', '加载失败')
@@ -149,14 +150,15 @@ function buildBuiltinCard(
       sw.addEventListener('change', () => {
         patchLibs({ ...libsOf(ctx.config), enabled: { ...libsOf(ctx.config).enabled, [meta.id]: sw.checked } })
       })
-      row.append(labelWrap, sw)
+      const controls = el('span', 'library-controls')
+      controls.append(el('span', 'library-state', featureCopy(on ? 'libraryOn' : 'libraryOff', ctx.config.uiLang)), sw)
+      row.append(labelWrap, controls)
       listWrap.append(row)
     })
   })()
 
   return card
 }
-
 // ===== 自定义库卡片 =====
 
 function buildCustomCard(
@@ -176,17 +178,14 @@ function buildCustomCard(
     card.append(el('p', 'empty', ot('opt.glossaryLibs.s11', '暂无自定义库，在下方新建。')))
   } else {
     for (const lib of libs.custom) {
-      const row = el('div', 'field')
+      const row = el('div', 'field library-row')
       const labelWrap = el('span', 'field-label')
       labelWrap.append(el('span', undefined, lib.name))
       const countTag = el('span', 'tag', fmt(ot('opt.glossaryLibs.s12', '{p1} 条'), { p1: lib.terms.length }))
       countTag.style.marginLeft = '8px'
       labelWrap.append(countTag)
 
-      const right = el('span')
-      right.style.display = 'flex'
-      right.style.gap = '8px'
-      right.style.alignItems = 'center'
+      const right = el('span', 'library-controls')
 
       const enabled = libs.enabled[lib.id] !== false // 默认启用
       const sw = el('input') as HTMLInputElement
@@ -210,7 +209,7 @@ function buildCustomCard(
         })
       })
 
-      right.append(sw, del)
+      right.append(el('span', 'library-state', featureCopy(enabled ? 'libraryOn' : 'libraryOff', ctx.config.uiLang)), sw, del)
       row.append(labelWrap, right)
       card.append(row)
     }
@@ -326,39 +325,54 @@ function buildExtractCard(
   const card = el('section', 'card')
   card.append(el('h2', 'card-title', ot('opt.glossaryLibs.s22', '智能提取术语')))
   card.append(
-    el('p', 'card-desc', ot('opt.glossaryLibs.s23', '粘贴一段文本，用 AI 提取其中的专业术语 / 专名并给出推荐译法；勾选后加入自定义库。需要已配置 AI 引擎（OpenAI 兼容 / DeepSeek）。')),
+    el('p', 'card-desc', featureCopy('extractDescription', config.uiLang)),
   )
+  const supported = supportsTermExtraction(config.engine.provider)
+  const ready = supported && Boolean(config.engine.keys.openai.trim())
+  card.append(el('p', 'feature-state', featureCopy(
+    ready ? 'extractReady' : supported ? 'extractNeedsKey' : 'extractNeedsEngine',
+    config.uiLang,
+  )))
 
   const area = el('textarea', 'control') as HTMLTextAreaElement
   area.rows = 5
   area.spellcheck = false
+  area.disabled = Boolean(extraction)
   area.placeholder = ot('opt.glossaryLibs.s24', '粘贴要提取术语的原文（截取前 4000 字符发送）')
   area.value = extractState.text
+  const inputLabel = ot('opt.glossaryLibs.s25', '文本')
+  area.setAttribute('aria-label', inputLabel)
   area.addEventListener('input', () => {
     extractState.text = area.value
+    extractBtn.disabled = !ready || Boolean(extraction) || !area.value.trim()
   })
   const areaRow = el('div', 'field field-top')
-  areaRow.append(el('span', 'field-label', ot('opt.glossaryLibs.s25', '文本')), area)
+  areaRow.append(el('span', 'field-label', inputLabel), area)
 
-  const status = el('p', 'hint', extractState.error || extractState.notice || '')
+  const status = el('p', 'hint extraction-status', extractState.error || extractState.notice || '')
+  status.setAttribute('role', extractState.error ? 'alert' : 'status')
   if (extractState.error) status.style.color = 'var(--tv-danger-text, #c4564a)'
 
-  const extractBtn = el('button', 'btn', extractState.busy ? ot('opt.glossaryLibs.s26', '提取中…') : ot('opt.glossaryLibs.s27', 'AI 提取'))
-  extractBtn.setAttribute('type', 'button')
-  if (extractState.busy) extractBtn.setAttribute('disabled', 'true')
+  const redraw = () => {
+    if (card.isConnected) card.replaceWith(buildExtractCard(libs, ctx, patchLibs))
+  }
+  if (extraction) void extraction.then(redraw)
+  const extractBtn = el('button', 'btn', extraction ? ot('opt.glossaryLibs.s26', '提取中…') : ot('opt.glossaryLibs.s27', 'AI 提取')) as HTMLButtonElement
+  extractBtn.type = 'button'
+  extractBtn.disabled = !ready || Boolean(extraction) || !area.value.trim()
   extractBtn.addEventListener('click', () => {
     const text = area.value.trim()
-    if (!text || extractState.busy) return
-    extractState.busy = true
+    if (!ready || !text || extraction) return
     extractState.error = ''
     extractState.notice = ''
-    rerender(card, ctx)
-    void sendBg<GlossaryTerm[]>({
+    extractState.results = []
+    extractState.checked.clear()
+    extraction = sendBg<{ terms: GlossaryTerm[] }>({
       kind: 'extractTerms',
       text,
       targetLang: config.general.targetLang,
     })
-      .then((terms) => {
+      .then(({ terms }) => {
         extractState.results = terms
         extractState.checked = new Set(terms.map((_, i) => i))
         extractState.notice = terms.length > 0 ? '' : ot('opt.glossaryLibs.s28', 'AI 未提取到术语。')
@@ -369,9 +383,9 @@ function buildExtractCard(
         extractState.error = fmt(ot('opt.glossaryLibs.s29', '提取失败：{p1}'), { p1: errMsg(e) })
       })
       .finally(() => {
-        extractState.busy = false
-        if (card.isConnected) rerender(card, ctx)
+        extraction = null
       })
+    redraw()
   })
   const btnRow = el('div')
   btnRow.style.marginTop = '12px'
@@ -431,7 +445,7 @@ function buildExtractCard(
       const picked = extractState.results.filter((_, i) => extractState.checked.has(i))
       if (picked.length === 0) {
         extractState.error = ot('opt.glossaryLibs.s35', '请先勾选要加入的术语。')
-        rerender(card, ctx)
+        redraw()
         return
       }
       const cur = libsOf(ctx.config)
@@ -467,12 +481,4 @@ function buildExtractCard(
   }
 
   return card
-}
-
-/** 局部重渲染：找到卡片所属的内容容器整体重画本标签页。 */
-function rerender(card: HTMLElement, ctx: GlossaryLibsTabCtx): void {
-  const root = card.parentElement
-  if (!root) return
-  root.replaceChildren()
-  renderGlossaryLibsTab(root, ctx)
 }

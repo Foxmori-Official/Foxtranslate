@@ -1,4 +1,5 @@
 import type { Config } from '../../shared/config'
+import { FREE_ENGINE_IDS } from '../../shared/engines'
 import type { Engine, EngineContext } from './types'
 import { googleEngine } from './google'
 import { bingEngine } from './bing'
@@ -8,7 +9,7 @@ import { libreEngine } from './libre'
 import { createOpenAICompatEngine, openaiEngine, deepseekEngine } from './openaiCompat'
 import { claudeEngine } from './claude'
 import { geminiEngine } from './gemini'
-import { aimaoEngine } from './aimao'
+import { foxmoriEngine } from './foxmori'
 import { customEngine } from './custom'
 
 /** 全部引擎注册表。key 与 Config.engine.provider 对齐（'libretranslate' 而非 'libre'）。
@@ -22,13 +23,13 @@ export const ENGINES: Record<string, Engine> = {
   deepseek: deepseekEngine,
   claude: claudeEngine,
   gemini: geminiEngine,
-  aimao: aimaoEngine,
+  foxmori: foxmoriEngine,
   libretranslate: libreEngine,
   custom: customEngine,
 }
 
 /** 免费引擎失败链顺序（契约 §7）：单引擎失败冷却 60s 沉底由管线层实现，此处只给顺序。 */
-export const FREE_CHAIN = ['google', 'bing', 'mymemory']
+export const FREE_CHAIN = FREE_ENGINE_IDS
 
 /** BYOK 引擎缺 key/缺配置时的引导文案。 */
 const BYOK_HINT: Record<string, string> = {
@@ -37,7 +38,7 @@ const BYOK_HINT: Record<string, string> = {
   deepseek: 'deepseek: missing API key (shared with the OpenAI-compatible key field). Open the Foxtranslate options page to set it.',
   claude: 'claude: missing API key. Open the Foxtranslate options page to set it.',
   gemini: 'gemini: missing API key. Open the Foxtranslate options page to set it.',
-  aimao: 'aimao: missing API key. Open the Foxtranslate options page to set it.',
+  foxmori: 'foxmori: missing API key. Open the Foxtranslate options page to set it.',
   libretranslate: 'libretranslate: no endpoint configured and no public fallback available.',
   custom: 'custom: missing endpoint URL. Open the Foxtranslate options page to configure it.',
 }
@@ -57,7 +58,10 @@ export function resolveEngine(id: string, ctx: EngineContext): Engine {
   if (id === 'deepseek' && !keys.openai) throw new Error(BYOK_HINT.deepseek)
   if (id === 'claude' && !keys.claude) throw new Error(BYOK_HINT.claude)
   if (id === 'gemini' && !keys.gemini) throw new Error(BYOK_HINT.gemini)
-  if (id === 'aimao' && !keys.aimao) throw new Error(BYOK_HINT.aimao)
+  if (id === 'foxmori') {
+    if (!keys.foxmori.trim()) throw new Error(BYOK_HINT.foxmori)
+    if (!ctx.config.engine.foxmori.model.trim()) throw new Error('Foxmori: choose a model on the options page.')
+  }
   if (id === 'custom' && !ctx.config.engine.custom.url.trim()) throw new Error(BYOK_HINT.custom)
   return engine
 }
@@ -112,4 +116,4 @@ export function syncCustomEngines(config: Config): void {
 
 export type { Engine, EngineContext, EngineResult } from './types'
 export { setFetchImpl } from './fetch'
-export { AIMAO_ENDPOINT } from './aimao'
+export { FOXMORI_ENDPOINT } from './foxmori'

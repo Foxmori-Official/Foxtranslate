@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * popup 布局与 i18n 测试：
- * - 控制区行序（语言对第一行，其后 引擎/专家/显示模式/译文样式/悬停/划词/悬浮球，当前网站区垫底）
+ * - 控制区行序（语言对/引擎/专家/显示模式/译文样式），快捷开关与当前网站规则
  * - 语言对行结构（源语言 → 目标语言 双下拉并排）与源语言下拉写 config.general.sourceLang + 热同步
  * - uiLang=en 时行标签/按钮/状态文案变英文；zh-CN 与中文现状一致
  *
@@ -72,7 +72,7 @@ beforeEach(() => {
 })
 
 describe('popup 控制区行序', () => {
-  it('语言对第一行，其后依次为 引擎/专家/显示模式/译文样式/悬停/划词/悬浮球', async () => {
+  it('语言对第一行，其后为引擎/专家/显示模式/译文样式，快捷开关保留配置状态', async () => {
     const app = await mount({ ...DEFAULT_CONFIG, uiLang: 'zh-CN' })
     const rows = Array.from(app.querySelectorAll('.controls .row')).map(
       (r) => (r as HTMLElement).dataset.row,
@@ -83,10 +83,18 @@ describe('popup 控制区行序', () => {
       'expert',
       'displayMode',
       'style',
-      'hover',
-      'selection',
-      'floatingBall',
     ])
+    const switches = Array.from(app.querySelectorAll('[role="switch"]'))
+    expect(switches.map((button) => button.textContent)).toEqual(['悬停翻译', '划词翻译', '悬浮球'])
+    expect(switches.map((button) => button.getAttribute('aria-checked'))).toEqual([
+      String(cfg.hover.enabled),
+      String(cfg.selection.enabled),
+      String(cfg.floatingBall.enabled),
+    ])
+    ;(switches[0] as HTMLButtonElement).click()
+    await flush()
+    expect(cfg.hover.enabled).toBe(!DEFAULT_CONFIG.hover.enabled)
+    expect(switches[0].getAttribute('aria-checked')).toBe(String(cfg.hover.enabled))
   })
 
   it('当前网站区保持在最后', async () => {
@@ -170,15 +178,16 @@ describe('popup i18n（uiLang）', () => {
     expect(rowLabel(app, 'expert')).toBe('AI 专家')
     expect(rowLabel(app, 'displayMode')).toBe('显示模式')
     expect(rowLabel(app, 'style')).toBe('译文样式')
-    expect(rowLabel(app, 'hover')).toBe('悬停翻译')
-    expect(rowLabel(app, 'selection')).toBe('划词翻译')
-    expect(rowLabel(app, 'floatingBall')).toBe('悬浮球')
+    expect(Array.from(app.querySelectorAll('[role="switch"]')).map((button) => button.textContent))
+      .toEqual(['悬停翻译', '划词翻译', '悬浮球'])
     expect(app.querySelector('.site-rules-label')?.textContent).toBe('当前网站')
     expect(app.querySelector('.main-btn')?.textContent).toBe('翻译此页')
     expect(app.querySelector('.status-text')?.textContent).toContain('请打开普通网页')
-    const btns = Array.from(app.querySelectorAll('.fox-nav a')).slice(1, 3).map((b) => b.textContent)
-    expect(btns).toEqual(['文档翻译', '生词复习'])
-    expect(app.querySelector('.stats-text')?.textContent).toBe('生词 3 · 到期 2')
+    expect(app.querySelector('[data-destination="files"]')?.getAttribute('aria-label')).toBe('文档翻译')
+    expect(app.querySelector('[data-destination="review"]')?.getAttribute('aria-label')).toBe('生词复习 · 生词 3 · 到期 2')
+    expect(app.querySelector('[data-destination="settings"]')?.getAttribute('aria-label')).toBe('设置')
+    expect(app.querySelector('.due-badge')?.textContent).toBe('2')
+    expect(app.querySelector('.popup-account-link')?.textContent).toBe('Foxmori 账户')
     // 显示模式选项
     const modeSel = app.querySelector('.row[data-row="displayMode"] select') as HTMLSelectElement
     expect(Array.from(modeSel.options).map((o) => o.textContent)).toEqual(['双语对照', '仅译文'])
@@ -195,15 +204,16 @@ describe('popup i18n（uiLang）', () => {
     expect(rowLabel(app, 'expert')).toBe('AI expert')
     expect(rowLabel(app, 'displayMode')).toBe('Display mode')
     expect(rowLabel(app, 'style')).toBe('Translation style')
-    expect(rowLabel(app, 'hover')).toBe('Hover translation')
-    expect(rowLabel(app, 'selection')).toBe('Selection translation')
-    expect(rowLabel(app, 'floatingBall')).toBe('Floating ball')
+    expect(Array.from(app.querySelectorAll('[role="switch"]')).map((button) => button.textContent))
+      .toEqual(['Hover translation', 'Selection translation', 'Floating ball'])
     expect(app.querySelector('.site-rules-label')?.textContent).toBe('Current site')
     expect(app.querySelector('.main-btn')?.textContent).toBe('Translate this page')
     expect(app.querySelector('.status-text')?.textContent).toContain('Open a normal web page')
-    const btns = Array.from(app.querySelectorAll('.fox-nav a')).slice(1, 3).map((b) => b.textContent)
-    expect(btns).toEqual(['Documents', 'Vocabulary'])
-    expect(app.querySelector('.stats-text')?.textContent).toBe('Words 3 · Due 2')
+    expect(app.querySelector('[data-destination="files"]')?.getAttribute('aria-label')).toBe('Documents')
+    expect(app.querySelector('[data-destination="review"]')?.getAttribute('aria-label')).toBe('Vocabulary · Words 3 · Due 2')
+    expect(app.querySelector('[data-destination="settings"]')?.getAttribute('aria-label')).toBe('Settings')
+    expect(app.querySelector('.due-badge')?.textContent).toBe('2')
+    expect(app.querySelector('.popup-account-link')?.textContent).toBe('Foxmori account')
     const modeSel = app.querySelector('.row[data-row="displayMode"] select') as HTMLSelectElement
     expect(Array.from(modeSel.options).map((o) => o.textContent)).toEqual([
       'Bilingual',

@@ -1,11 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * 翻译引擎标签页（统一卡片）集成测试：
- * - 引擎选择 → 配置区联动（aimao / deepl / custom:<id>）
- * - 选择器底部「＋ 添加自定义引擎」→ 新建表单（模板预填、保存后自动设为当前引擎）
+ * 翻译服务列表与详情集成测试：
+ * - 查看引擎配置和测试连接，显式设为当前引擎（foxmori / deepl / custom:<id>）
+ * - 添加自定义引擎（模板预填、保存后自动设为当前引擎）
  * - 高级设置（可选）默认收起，headersJson 保存进配置
- * - 「删除此引擎」在表单内完成，删除当前引擎后回退 AI猫
+ * - 「删除此引擎」在表单内完成，删除当前引擎后回退 Foxmori
  *
  * main.ts 在 document 存在时自动 init()，因此每个用例先装 chrome stub 再动态 import。
  */
@@ -16,7 +16,7 @@ import type { Config, CustomEngine } from "../../src/shared/config";
 let stored: Config;
 
 function installChromeStub(): void {
-  const sendMessage = vi.fn(async (msg: { kind: string; patch?: Partial<Config> }) => {
+  const sendMessage = vi.fn(async (msg: { kind: string; provider?: string; patch?: Partial<Config> }) => {
     if (msg.kind === "getConfig") return { ok: true, data: stored };
     if (msg.kind === "setConfig") {
       // background store 为浅合并：patch 中的嵌套对象总是整对象传入
@@ -26,7 +26,7 @@ function installChromeStub(): void {
     if (msg.kind === "testEngine") {
       return {
         ok: true,
-        data: { ok: true, text: "你好", engine: stored.engine.provider, elapsedMs: 12 },
+        data: { ok: true, text: "你好", engine: msg.provider ?? stored.engine.provider, elapsedMs: 12 },
       };
     }
     return { ok: true, data: null };
@@ -88,46 +88,52 @@ function cfgWithCustomEngine(): Config {
   return cfg;
 }
 
-describe("翻译引擎标签页（统一卡片）", () => {
-  it("融合为一个统一板块：选择器、配置区、测试连接同卡片，无独立引擎/管理卡片", async () => {
+describe("翻译引擎标签页", () => {
+  it("左侧按服务分组，右侧显示当前引擎的配置和测试", async () => {
     const cfg = structuredClone(DEFAULT_CONFIG);
     cfg.uiLang = 'zh-CN'; // 测试断言中文界面：显式中文（默认 auto 在测试环境解析为英文）
-    cfg.engine.provider = "aimao";
+    cfg.engine.provider = "foxmori";
     await bootEngineTab(cfg);
 
     const cards = document.querySelectorAll(".content > .card");
-    // 统一引擎卡片（请求超时已并入）+ 批量翻译，共 2 张（原先分散的引擎选择/AI猫配置/自定义引擎管理/测试连接/请求超时已融合）
     expect(cards.length).toBe(2);
     const engineCard = cards[0];
-    expect(engineCard.querySelector(".engine-select")).toBeTruthy();
+    expect(Array.from(engineCard.querySelectorAll(".engine-group-title"), el => el.textContent)).toEqual([
+      "免费 · 无需密钥", "Foxmori 订阅", "自备密钥与自定义",
+    ]);
+    expect(engineCard.querySelectorAll(".engine-current")).toHaveLength(1);
+    expect(engineCard.querySelector('[data-engine-id="foxmori"] .engine-current')?.textContent).toBe("当前");
     expect(engineCard.querySelector(".engine-config")).toBeTruthy();
     expect(btnByText("测试连接", engineCard)).toBeTruthy();
-    // AI猫配置字段在统一卡片内
+    // Foxmori配置字段在统一卡片内
     const area = qs<HTMLElement>(".engine-config", engineCard);
-    expect(area.textContent).toContain("https://api.aimao.today/v1");
+    expect(area.textContent).toContain("https://api.foxmori.com/v1");
     expect(area.textContent).toContain("API Key");
-    expect(qs<HTMLAnchorElement>(".apikey-link", area).textContent).toBe("获取 API 密钥");
+    expect(btnByText("登录 Foxmori", area)).toBeTruthy();
+    expect(btnByText("获取模型列表", area)).toBeTruthy();
   });
 
-  it("引擎选择联动配置区：切换到 DeepL 后显示 DeepL 密钥字段并写入 provider", async () => {
+  it("浏览及测试 DeepL 不切换默认引擎，显式设为当前后才写入 provider", async () => {
     const cfg = structuredClone(DEFAULT_CONFIG);
     cfg.uiLang = 'zh-CN'; // 测试断言中文界面：显式中文（默认 auto 在测试环境解析为英文）
-    cfg.engine.provider = "aimao";
+    cfg.engine.provider = "foxmori";
     await bootEngineTab(cfg);
 
-    const item = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(".engine-select-item"),
-    ).find((b) => b.textContent?.includes("DeepL"));
-    if (!item) throw new Error("未找到 DeepL 选项");
-    item.click();
-    await flush();
+    qs<HTMLButtonElement>('[data-engine-id="deepl"]').click();
 
-    expect(stored.engine.provider).toBe("deepl");
+    expect(stored.engine.provider).toBe("foxmori");
     const area = qs<HTMLElement>(".engine-config");
     expect(area.textContent).toContain("API Key");
     expect(area.textContent).toContain("密钥仅保存在本机浏览器中");
-    // 切换后仍是同一张统一卡片承载
-    expect(document.querySelectorAll(".content > .card").length).toBe(2);
+    btnByText("测试连接").click();
+    await flush();
+    expect(qs(".engine-test-result").textContent).toContain("deepl");
+    expect(stored.engine.provider).toBe("foxmori");
+
+    btnByText("设为当前引擎").click();
+    await flush();
+    expect(stored.engine.provider).toBe("deepl");
+    expect(qs('[data-engine-id="deepl"] .engine-current').textContent).toBe("当前");
   });
 
   it("选中 custom:<id> 时配置区直接显示该引擎编辑表单（含删除入口），高级区默认收起", async () => {
@@ -186,19 +192,19 @@ describe("翻译引擎标签页（统一卡片）", () => {
     expect(hints).toContain("请求头 JSON 格式不正确");
   });
 
-  it("选择器底部「＋ 添加自定义引擎」：展开新建表单（模板预填、高级区收起、默认 '{}'），保存后自动设为当前引擎", async () => {
+  it("添加自定义引擎：展开新建表单，保存后自动设为当前引擎", async () => {
     const cfg = structuredClone(DEFAULT_CONFIG);
     cfg.uiLang = 'zh-CN'; // 测试断言中文界面：显式中文（默认 auto 在测试环境解析为英文）
-    cfg.engine.provider = "aimao";
+    cfg.engine.provider = "foxmori";
     await bootEngineTab(cfg);
 
-    const addItem = qs<HTMLButtonElement>(".engine-select-add");
-    expect(addItem.textContent).toBe("＋ 添加自定义引擎");
+    const addItem = qs<HTMLButtonElement>(".engine-add");
+    expect(addItem.textContent).toBe("添加自定义引擎");
     addItem.click();
     await flush();
 
     // 伪选项不写入 provider
-    expect(stored.engine.provider).toBe("aimao");
+    expect(stored.engine.provider).toBe("foxmori");
     const form = qs<HTMLElement>(".custom-engine-form");
     // 模板预填
     expect(qs<HTMLInputElement>('input[placeholder="引擎名称"]', form).value).toBe(
@@ -233,33 +239,33 @@ describe("翻译引擎标签页（统一卡片）", () => {
   it("新建表单可取消：取消后回到当前引擎配置，不产生新引擎", async () => {
     const cfg = structuredClone(DEFAULT_CONFIG);
     cfg.uiLang = 'zh-CN'; // 测试断言中文界面：显式中文（默认 auto 在测试环境解析为英文）
-    cfg.engine.provider = "aimao";
+    cfg.engine.provider = "foxmori";
     await bootEngineTab(cfg);
 
-    qs<HTMLButtonElement>(".engine-select-add").click();
+    qs<HTMLButtonElement>(".engine-add").click();
     await flush();
     btnByText("取消", qs<HTMLElement>(".custom-engine-form")).click();
     await flush();
 
     expect(stored.engine.customEngines.length).toBe(0);
-    expect(stored.engine.provider).toBe("aimao");
+    expect(stored.engine.provider).toBe("foxmori");
     expect(document.querySelector(".custom-engine-form")).toBeNull();
     expect(qs<HTMLElement>(".engine-config").textContent).toContain(
-      "https://api.aimao.today/v1",
+      "https://api.foxmori.com/v1",
     );
   });
 
-  it("「删除此引擎」：从表单内删除当前自定义引擎并回退到 AI猫", async () => {
+  it("「删除此引擎」：从表单内删除当前自定义引擎并回退到 Foxmori", async () => {
     await bootEngineTab(cfgWithCustomEngine());
 
     btnByText("删除此引擎", qs<HTMLElement>(".custom-engine-form")).click();
     await flush();
 
     expect(stored.engine.customEngines.length).toBe(0);
-    expect(stored.engine.provider).toBe("aimao");
-    // 配置区联动回 AI猫
+    expect(stored.engine.provider).toBe("foxmori");
+    // 配置区联动回 Foxmori
     expect(qs<HTMLElement>(".engine-config").textContent).toContain(
-      "https://api.aimao.today/v1",
+      "https://api.foxmori.com/v1",
     );
   });
 
@@ -277,14 +283,14 @@ describe("翻译引擎标签页（统一卡片）", () => {
   it("测试连接按钮保留在统一卡片底部并回报结果", async () => {
     const cfg = structuredClone(DEFAULT_CONFIG);
     cfg.uiLang = 'zh-CN'; // 测试断言中文界面：显式中文（默认 auto 在测试环境解析为英文）
-    cfg.engine.provider = "aimao";
+    cfg.engine.provider = "foxmori";
     await bootEngineTab(cfg);
 
     const engineCard = document.querySelectorAll(".content > .card")[0];
     btnByText("测试连接", engineCard).click();
     await flush();
 
-    const result = qs<HTMLElement>(".hint", engineCard);
+    const result = qs<HTMLElement>(".engine-test-result", engineCard);
     expect(result.textContent).toContain("连接成功");
     expect(result.textContent).toContain("你好");
   });

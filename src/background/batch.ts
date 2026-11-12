@@ -21,6 +21,8 @@ export interface BatchQueueOptions {
 export interface BatchQueueExtra {
   /** 批失败后的逐条兜底（管线层传 engine.translate 单发）。 */
   fallbackSingles?: (text: string) => Promise<string>
+  /** If the provider configuration changed, new requests must use a fresh dispatch closure. */
+  configuration?: string
 }
 
 export interface BatchQueue {
@@ -119,7 +121,7 @@ class KeyBatchQueue implements BatchQueue {
   }
 }
 
-const queues = new Map<string, BatchQueue>()
+const queues = new Map<string, { queue: BatchQueue; configuration?: string }>()
 
 /** 按 key 复用队列（同 key 共享节流窗口与并发槽）。 */
 export function getBatchQueue(
@@ -128,12 +130,11 @@ export function getBatchQueue(
   opts: BatchQueueOptions,
   extra?: BatchQueueExtra,
 ): BatchQueue {
-  let q = queues.get(key)
-  if (!q) {
-    q = new KeyBatchQueue(taskFn, opts, extra)
-    queues.set(key, q)
-  }
-  return q
+  const existing = queues.get(key)
+  if (existing && existing.configuration === extra?.configuration) return existing.queue
+  const queue = new KeyBatchQueue(taskFn, opts, extra)
+  queues.set(key, { queue, configuration: extra?.configuration })
+  return queue
 }
 
 /** 清空全部队列（测试隔离用）。 */

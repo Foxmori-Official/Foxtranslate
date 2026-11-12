@@ -23,7 +23,6 @@ import { fmt, resolveUiLang, t, type ResolvedLang } from '../shared/i18n'
 import { watchUiLang } from '../shared/i18n-pages'
 import { parserFor, SUPPORTED_EXTS } from './parsers'
 import type { DocParser, OutputMode, ParsedDoc } from './parsers/types'
-import { previewGlyph } from '../shared/uiLabels'
 import { langNative } from '../core/langs'
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024 // 20MB
@@ -130,7 +129,7 @@ let peCount: HTMLElement
 let peHint: HTMLElement
 let peList: HTMLElement
 // 需随界面语言重渲染的静态文案节点
-let brandNameEl: HTMLElement
+let titleEl: HTMLElement
 let cardFileTitleEl: HTMLElement
 let cardFileDescEl: HTMLElement
 let dropzoneMainEl: HTMLElement
@@ -139,8 +138,6 @@ let dzBtnEl: HTMLButtonElement
 let cardOptTitleEl: HTMLElement
 let langLabelEl: HTMLElement
 let modeLabelEl: HTMLElement
-let cardRunTitleEl: HTMLElement
-let cardRunDescEl: HTMLElement
 let peTitleEl: HTMLElement
 let peToggleTextEl: HTMLElement
 let peDescEl: HTMLElement
@@ -181,9 +178,8 @@ function dropzoneSubText(): string {
   })
 }
 
-/** 执行卡片说明（用户收益表述，随界面语言重渲染） */
-function runDescText(): string {
-  return L('files.card.run.desc', '文件在本地处理，翻译结果可随时下载')
+function pageTitle(): string {
+  return L('files.title', 'Foxtranslate · 文档翻译').split(' · ').at(-1) ?? 'Foxtranslate'
 }
 
 /** 上传区线性图标：上传箭头（40px，stroke 继承 .dropzone-icon 的 color: 品牌蓝） */
@@ -204,15 +200,8 @@ function buildLayout(): void {
   const app = document.getElementById('app') as HTMLElement
   const layout = el('main', 'layout fox-main')
 
-  // 品牌
-  const brand = el('div', 'brand')
-  brand.append(el('div', 'brand-logo', previewGlyph(uiLang)))
-  const brandText = el('div', 'brand-text')
-  brandNameEl = el('div', 'brand-name', L('files.title', 'Foxtranslate · 文档翻译'))
-  brandText.append(brandNameEl)
-  brandText.append(el('div', 'brand-sub', 'PDF / ePub / DOCX / PPTX / XLSX / HTML / JSON / TXT / Markdown / SRT / VTT / ASS'))
-  brand.append(brandText)
-  layout.append(brand)
+  titleEl = el('h1', 'file-page-title', pageTitle())
+  layout.append(titleEl)
 
   // ===== 卡片 1：文件选择 =====
   const cardFile = el('section', 'card')
@@ -240,13 +229,11 @@ function buildLayout(): void {
   fileInput.type = 'file'
   fileInput.accept = SUPPORTED_EXTS.map((e) => '.' + e).join(',')
   cardFile.append(fileInput)
-  fileInfoEl = el('div')
-  cardFile.append(fileInfoEl)
   layout.append(cardFile)
 
   // ===== 卡片 2：翻译设置 =====
-  const cardOpt = el('section', 'card')
-  cardOptTitleEl = el('h2', 'card-title', L('files.card.settings.title', '翻译设置'))
+  const cardOpt = el('section', 'file-options')
+  cardOptTitleEl = el('h3', 'card-title', L('files.card.settings.title', '翻译设置'))
   cardOpt.append(cardOptTitleEl)
 
   const langField = el('div', 'field')
@@ -286,14 +273,10 @@ function buildLayout(): void {
   }
   modeField.append(radioGroup)
   cardOpt.append(modeField)
-  layout.append(cardOpt)
+  cardFile.append(cardOpt)
 
-  // ===== 卡片 3：执行 =====
-  const cardRun = el('section', 'card')
-  cardRunTitleEl = el('h2', 'card-title', L('files.card.run.title', '开始翻译'))
-  cardRun.append(cardRunTitleEl)
-  cardRunDescEl = el('p', 'card-desc', runDescText())
-  cardRun.append(cardRunDescEl)
+  const footer = el('div', 'file-actions')
+  fileInfoEl = el('div', 'file-info-slot')
   const actions = el('div', 'actions')
   translateBtn = el('button', 'btn', L('files.action.translate', '开始翻译')) as HTMLButtonElement
   translateBtn.disabled = true
@@ -308,7 +291,8 @@ function buildLayout(): void {
   downloadBtn.style.display = 'none'
   downloadBtn.type = 'button'
   actions.append(translateBtn, translateHintEl, cancelBtn, downloadBtn)
-  cardRun.append(actions)
+  footer.append(fileInfoEl, actions)
+  cardFile.append(footer)
 
   progressWrap = el('div', 'progress-wrap')
   progressWrap.style.display = 'none'
@@ -318,11 +302,10 @@ function buildLayout(): void {
   progressWrap.append(track)
   progressText = el('div', 'progress-text', '0 / 0')
   progressWrap.append(progressText)
-  cardRun.append(progressWrap)
+  cardFile.append(progressWrap)
 
   statusEl = el('div', 'status')
-  cardRun.append(statusEl)
-  layout.append(cardRun)
+  cardFile.append(statusEl)
 
   // ===== 卡片 4：校订译文（翻译完成后显示；开关默认关，开时才渲染编辑列表） =====
   peCard = el('section', 'card pe-card')
@@ -798,7 +781,8 @@ function bindRunEvents(): void {
 
 /** 按当前界面语言刷新全部常驻文案，并重绘动态区（文件信息/校订列表/进度/状态） */
 function refreshTexts(): void {
-  brandNameEl.textContent = L('files.title', 'Foxtranslate · 文档翻译')
+  titleEl.textContent = pageTitle()
+  document.querySelector('.fox-sidebar')?.replaceWith(appSidebar('files', uiLang))
   cardFileTitleEl.textContent = L('files.card.file.title', '选择文件')
   cardFileDescEl.textContent = L(
     'files.card.file.desc',
@@ -817,8 +801,6 @@ function refreshTexts(): void {
     refs.label.textContent = L(def.labelKey, def.labelZh)
     refs.desc.textContent = L(def.descKey, def.descZh)
   }
-  cardRunTitleEl.textContent = L('files.card.run.title', '开始翻译')
-  cardRunDescEl.textContent = runDescText()
   translateBtn.textContent = L('files.action.translate', '开始翻译')
   translateHintEl.textContent = L('files.action.translateHint', '请先选择文件')
   cancelBtn.textContent = L('files.action.cancel', '取消')
@@ -840,7 +822,7 @@ function refreshTexts(): void {
 // ===== 初始化 =====
 
 async function init(): Promise<void> {
-  // 布局不阻塞于配置（测试/异常环境也要立即可用）；品牌字符在配置到达后刷新
+  // 配置加载后刷新页面语言和默认目标语言。
   buildLayout()
   bindFileEvents()
   bindRunEvents()
@@ -848,8 +830,6 @@ async function init(): Promise<void> {
     const config = await sendBg<Config>({ kind: 'getConfig' })
     uiLang = resolveUiLang(config.uiLang)
     refreshTexts()
-    const logo = document.querySelector('.brand-logo')
-    if (logo) logo.textContent = previewGlyph(uiLang)
     const def = config.general.targetLang
     if (def && def !== 'auto') langSelect.value = def
   } catch {

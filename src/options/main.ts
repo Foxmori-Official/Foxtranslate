@@ -1,5 +1,10 @@
-import { bindListbox } from '../shared/listbox'
+import { renderFoxmoriAccount, renderFoxmoriProvider, renderModelField } from './foxmoriProvider'
+import { createCaptionPreview, renderSubtitlePreferences, SUBTITLE_SETTINGS_CSS } from '../shared/subtitleSettings'
+import { createReadingPreview } from '../shared/readingPreview'
+import type { SubtitlePatch, SubtitlePreferences } from '../shared/config'
+import { featureCopy } from '../shared/featureCopy'
 import { uiCopy } from '../shared/interface'
+import { appNavigation } from '../shared/appShell'
 /**
  * Foxtranslate options — 设置页逻辑（原生 TS，无框架，中文 UI，左侧竖排标签页导航）。
  *
@@ -10,7 +15,7 @@ import { uiCopy } from '../shared/interface'
  * - 每次保存成功后顶部显示轻提示「已保存」。
  */
 import { LANGS, COMMON_LANG_CODES, langNative } from '../core/langs'
-import { TRANSLATION_STYLES } from '../core/styles'
+import { getStyle, TRANSLATION_STYLES } from '../core/styles'
 import type { Config, CustomEngine, GlossaryTerm } from '../shared/config'
 import { fmt, t, resolveUiLang, UI_LANGS, type UiLangCode } from '../shared/i18n'
 import '../shared/i18n-dicts'
@@ -21,8 +26,8 @@ import { renderGlossaryLibsTab } from './tabGlossaryLibs'
 import { renderWritingTab } from './tabWriting'
 import { renderTtsTab } from './tabTts'
 import { renderHotkeysTab } from './tabHotkeys'
-import { BUILTIN_ENGINES, engineName, engineDesc } from '../shared/engines'
-import { styleName, previewGlyph } from '../shared/uiLabels'
+import { BUILTIN_ENGINES, FREE_ENGINE_IDS, engineName, engineDesc } from '../shared/engines'
+import { styleName } from '../shared/uiLabels'
 
 // ===== 消息封装 =====
 
@@ -51,6 +56,7 @@ let activeTab: TabId = 'general'
 
 let contentEl: HTMLElement
 let toastEl: HTMLElement
+let workspaceNav: HTMLElement
 let toastTimer: number | undefined
 
 // ===== DOM 小工具 =====
@@ -321,8 +327,9 @@ function buildDomainAdder(placeholder: string, onAdd: (domain: string) => void):
  * 已被 chrome.permissions.contains 视为已授予而自动跳过。
  */
 async function ensureEndpointPermissions(patch: Partial<Config>): Promise<boolean> {
-  const engine = { ...config.engine, ...patch.engine }
-  // AI猫为内置服务（manifest 必需主机权限已覆盖），跳过；
+  const { engine } = patch
+  if (!engine) return true
+  // Foxmori为内置服务（manifest 必需主机权限已覆盖），跳过；
   // 收集各自定义引擎 endpoint 与 openai/deepseek/libre 端点按需申请。
   const candidates = [
     ...engine.customEngines.map((e) => e.endpoint),
@@ -351,21 +358,32 @@ async function ensureEndpointPermissions(patch: Partial<Config>): Promise<boolea
   return true
 }
 
-async function patchConfig(patch: Partial<Config>): Promise<void> {
-  try {
-    if (!(await ensureEndpointPermissions(patch))) return
-    config = await sendBg<Config>({ kind: 'setConfig', patch })
-    showToast(ot('opt.s9', '已保存'))
-  } catch (e) {
-    showToast(fmt(ot('opt.s10', '保存失败：{p1}'), { p1: errMsg(e) }))
-  }
-  renderContent()
+let pendingConfigSave = Promise.resolve()
+function patchConfig(update: Partial<Config> | ((current: Config) => Partial<Config>), rerender = true): Promise<void> {
+  const operation = pendingConfigSave.then(async () => {
+    try {
+      const patch = typeof update === 'function' ? update(config) : update
+      if (!(await ensureEndpointPermissions(patch))) return
+      config = await sendBg<Config>({ kind: 'setConfig', patch })
+      showToast(ot('opt.s9', '已保存'))
+    } catch (e) {
+      showToast(fmt(ot('opt.s10', '保存失败：{p1}'), { p1: errMsg(e) }))
+    }
+    if (rerender) renderContent()
+  })
+  pendingConfigSave = operation
+  return operation
+}
+
+function patchEngine(update: (engine: Config['engine']) => Config['engine'], rerender = false): Promise<void> {
+  return patchConfig(({ engine }) => ({ engine: update(engine) }), rerender)
 }
 
 // ===== 标签页骨架 =====
 
 const TABS = [
   { id: 'general', label: '通用' },
+  { id: 'account', label: 'Foxmori 账户' },
   { id: 'engine', label: '翻译引擎' },
   { id: 'style', label: '译文样式' },
   { id: 'interaction', label: '交互' },
@@ -384,23 +402,28 @@ type TabId = (typeof TABS)[number]['id']
 
 /** 导航/页标题文案：随界面语言切换（auto 先解析为浏览器界面语言；zh-CN 时即 TABS 内的中文原文） */
 function tabLabel(id: TabId, zh: string): string {
+  if (id === 'account') return featureCopy('account', config.uiLang)
   return id === 'video' ? uiCopy('video', config.uiLang) : t(`tab.${id}`, resolveUiLang(config.uiLang), zh)
 }
 
-const TAB_DESCS: Record<TabId, string> = {
+const TAB_DESCS: Partial<Record<TabId, string>> = {
   general: '语言、显示模式与网站 / 语言名单',
-  engine: '翻译引擎选择与密钥、批量、超时配置',
   experts: '自定义 AI 翻译策略（Prompt），仅对 AI 引擎生效',
   style: '译文在页面中的展示样式',
   privacy: '本地敏感信息脱敏与使用统计',
   glossary: '固定术语译法，保证翻译一致性',
-  glossaryLibs: '领域术语库与智能提取，仅对 AI 引擎生效',
   writing: 'AI 写作助手的语气与篇幅偏好',
   tts: '朗读语速、音调与音量',
   hotkeys: '自定义全局快捷键',
   words: '收藏的生词，支持 JSON 导入导出',
   interaction: '悬停 / 划词 / 输入框翻译与悬浮球',
   video: 'YouTube 播放器控制与会议实时字幕',
+}
+
+const FEATURE_TAB_DESCS: Partial<Record<TabId, Parameters<typeof featureCopy>[0]>> = {
+  account: 'accountDescription',
+  engine: 'enginePageDescription',
+  glossaryLibs: 'glossaryPageDescription',
 }
 
 function buildShell(root: HTMLElement): void {
@@ -416,17 +439,27 @@ function buildShell(root: HTMLElement): void {
   brand.append(logo, brandText)
 
   const nav = el('nav', 'nav')
+  let groupItems: HTMLElement = nav
   for (const tab of TABS) {
-    const btn = el('button', 'nav-btn', tabLabel(tab.id, tab.label))
+    const btn = el('button', tab.id === 'account' ? 'nav-btn nav-account' : 'nav-btn', tabLabel(tab.id, tab.label))
     btn.type = 'button'
     btn.dataset.tab = tab.id
-    if (tab.id === 'general' || tab.id === 'experts' || tab.id === 'words') {
-      nav.append(el('span', 'nav-group', uiCopy(tab.id === 'general' ? 'defaults' : tab.id === 'experts' ? 'assist' : 'data', config.uiLang)))
+    if (tab.id === 'general') {
+      nav.append(el('span', 'nav-group', uiCopy('defaults', config.uiLang)))
+    } else if (tab.id === 'experts' || tab.id === 'words') {
+      const group = el('details', 'settings-nav-group')
+      const label = el('summary', 'nav-group')
+      label.dataset.group = tab.id === 'experts' ? 'assist' : 'data'
+      groupItems = el('div', 'settings-nav-items')
+      group.append(label, groupItems)
+      nav.append(group)
     }
     btn.addEventListener('click', () => switchTab(tab.id))
-    nav.append(btn)
+    groupItems.append(btn)
   }
-  sidebar.append(brand, nav)
+  workspaceNav = appNavigation('settings', config.uiLang, true)
+  workspaceNav.dataset.language = config.uiLang
+  sidebar.append(brand, workspaceNav, nav)
 
   const sideFooter = el('div', 'side-footer')
   const siteLink = el('a', 'side-footer-link', 'foxmori.com')
@@ -454,21 +487,34 @@ function buildShell(root: HTMLElement): void {
   root.append(layout, toastEl)
 }
 
-function switchTab(id: TabId): void {
+function switchTab(id: TabId, focusHeading = false): void {
   activeTab = id
   history.replaceState(null, '', '#' + id)
   document.querySelectorAll<HTMLButtonElement>('.nav-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.tab === id)
-    if (b.dataset.tab === id) b.setAttribute('aria-current', 'page')
-    else b.removeAttribute('aria-current')
+    if (b.dataset.tab === id) {
+      b.setAttribute('aria-current', 'page')
+      const group = b.closest('details')
+      if (group) group.open = true
+    } else b.removeAttribute('aria-current')
   })
   if (id === 'words' && !wordsLoaded) void loadWords()
   renderContent()
+  if (focusHeading) contentEl.querySelector<HTMLElement>('.page-title')?.focus()
 }
 
 function renderContent(): void {
   if (!contentEl) return
   document.documentElement.lang = resolveUiLang(config.uiLang)
+  if (workspaceNav.dataset.language !== config.uiLang) {
+    const navigation = appNavigation('settings', config.uiLang, true)
+    navigation.dataset.language = config.uiLang
+    workspaceNav.replaceWith(navigation)
+    workspaceNav = navigation
+  }
+  for (const summary of document.querySelectorAll<HTMLElement>('.settings-nav-group > summary')) {
+    summary.textContent = uiCopy(summary.dataset.group === 'assist' ? 'assist' : 'data', config.uiLang)
+  }
   // 导航标签随界面语言刷新（uiLang 切换后重渲染即更新）
   document.querySelectorAll<HTMLButtonElement>('.nav-btn').forEach((b) => {
     const navTab = TABS.find((x) => x.id === b.dataset.tab)
@@ -476,20 +522,32 @@ function renderContent(): void {
   })
   contentEl.replaceChildren()
   const tab = TABS.find((x) => x.id === activeTab)
+  const title = el('h1', 'page-title', tab ? tabLabel(tab.id, tab.label) : '')
+  title.tabIndex = -1
+  const featureDescription = FEATURE_TAB_DESCS[activeTab]
+  const description = featureDescription
+    ? featureCopy(featureDescription, config.uiLang)
+    : ot(`tabDesc.${activeTab}`, TAB_DESCS[activeTab] ?? '')
   contentEl.append(
-    el('h1', 'page-title', tab ? tabLabel(tab.id, tab.label) : ''),
-    el('p', 'page-desc', t(`tabDesc.${activeTab}`, resolveUiLang(config.uiLang), TAB_DESCS[activeTab])),
+    title,
+    el('p', 'page-desc', description),
   )
   switch (activeTab) {
     case 'general':
       renderGeneral(contentEl)
       break
+    case 'account':
+      renderAccountTab(contentEl)
+      break
     case 'engine':
       renderEngine(contentEl)
       break
-    case 'experts':
-      renderExpertsTab(contentEl, { config, patchConfig, el: elAny })
+    case 'experts': {
+      const settings = el('div', 'expert-settings')
+      contentEl.append(settings)
+      renderExpertsTab(settings, { config, patchConfig, el: elAny })
       break
+    }
     case 'style':
       renderStyle(contentEl)
       break
@@ -523,11 +581,50 @@ function renderContent(): void {
   }
 }
 
+const providerContext = {
+  config: () => config,
+  send: async <T>(request: BgRequest): Promise<T> => {
+    await pendingConfigSave
+    return sendBg<T>(request)
+  },
+  saveEngine: patchEngine,
+  reload: async () => {
+    await pendingConfigSave
+    config = await sendBg<Config>({ kind: 'getConfig' })
+    renderContent()
+  },
+}
+
+function renderAccountTab(root: HTMLElement): void {
+  const next = el('div', 'account-next')
+  const configure = el('button', 'btn btn-secondary', featureCopy('accountEngine', config.uiLang))
+  configure.type = 'button'
+  configure.addEventListener('click', () => {
+    inspectedEngine = 'foxmori'
+    switchTab('engine', true)
+  })
+  next.append(el('p', 'hint', featureCopy('accountEngineHint', config.uiLang)), configure)
+  root.append(renderFoxmoriAccount(providerContext, true), next)
+}
+
 // ===== 标签页 1：通用 =====
 
 function renderGeneral(root: HTMLElement): void {
   // 界面语言：auto 先解析为浏览器界面语言；t() 对 zh-CN 直接回退中文原文
   const L = resolveUiLang(config.uiLang)
+  const configured = Boolean(config.engine.keys.foxmori)
+  const account = el('section', 'card account-overview')
+  const accountCopy = el('div')
+  accountCopy.append(
+    el('h2', 'card-title', featureCopy('account', config.uiLang)),
+    el('p', 'card-desc', featureCopy(configured ? 'accountKeyReady' : 'accountOverview', config.uiLang)),
+  )
+  const accountAction = el('button', 'btn', featureCopy(configured ? 'accountManage' : 'accountAccess', config.uiLang))
+  accountAction.type = 'button'
+  accountAction.addEventListener('click', () => switchTab('account', true))
+  account.append(accountCopy, accountAction)
+  root.append(account)
+
   // 目标语言
   const langCard = card(
     uiCopy('language', config.uiLang),
@@ -572,7 +669,8 @@ function renderGeneral(root: HTMLElement): void {
     t('general.displayMode', L, '显示模式'),
     t('general.displayModeDesc', L, '控制译文与原文在页面中的呈现方式。'),
   )
-  modeCard.append(
+  const modeSettings = el('div', 'settings-with-preview')
+  modeSettings.append(
     buildRadioGroup(
       'displayMode',
       [
@@ -592,7 +690,9 @@ function renderGeneral(root: HTMLElement): void {
         void patchConfig({ general: { ...config.general, displayMode: v } })
       },
     ),
+    createReadingPreview(config),
   )
+  modeCard.append(modeSettings)
 
   // 总是翻译此网站
   const autoSiteCard = card(
@@ -681,7 +781,7 @@ export interface EngineOption {
 
 /** 引擎图标（构建后位于 dist/engine-icons/，引用走 chrome.runtime.getURL） */
 const ENGINE_ICON_FILES: Record<string, string> = {
-  aimao: 'engine-icons/aimao.png',
+  foxmori: 'icons/icon48.png',
   google: 'engine-icons/google.svg',
   bing: 'engine-icons/bing.svg',
   mymemory: 'engine-icons/mymemory.png',
@@ -694,7 +794,7 @@ const ENGINE_ICON_FILES: Record<string, string> = {
   custom: 'engine-icons/custom.svg',
 }
 
-/** 引擎下拉选项：AI猫第一 + 内置引擎 + config.engine.customEngines（id 为 custom:<entryId>） */
+/** 引擎下拉选项：Foxmori第一 + 内置引擎 + config.engine.customEngines（id 为 custom:<entryId>） */
 export function getEngineOptions(cfg: Config): EngineOption[] {
   const ui = resolveUiLang(cfg.uiLang)
   const options: EngineOption[] = BUILTIN_ENGINES.map((e) => ({
@@ -727,162 +827,109 @@ function engineIconImg(icon: string): HTMLImageElement {
   return img
 }
 
-/**
- * 带图标的引擎下拉（原生 option 不支持图片，用按钮 + 列表模拟）。
- * footerItem：列表底部追加的伪选项（如「＋ 添加自定义引擎」），选中同样走 onChange(id)。
- */
-function buildEngineSelect(
-  options: ReadonlyArray<EngineOption>,
-  current: string,
-  onChange: (id: string) => void,
-  footerItem?: { id: string; label: string },
-): HTMLElement {
-  const wrap = el('div', 'engine-select')
-  const btn = el('button', 'engine-select-btn')
-  btn.type = 'button'
-  btn.setAttribute('aria-haspopup', 'listbox')
-  const renderBtn = (): void => {
-    const opt = options.find((o) => o.id === current)
-    btn.replaceChildren()
-    if (opt?.icon) btn.append(engineIconImg(opt.icon))
-    const name = opt?.name ?? (footerItem && footerItem.id === current ? footerItem.label : current)
-    btn.append(el('span', 'engine-select-name', name), el('span', 'engine-select-arrow', '▾'))
-  }
-  renderBtn()
-
-  const list = el('div', 'engine-select-list')
-  list.setAttribute('role', 'listbox')
-  const { close } = bindListbox(wrap, btn, list)
-  for (const o of options) {
-    const item = el('button', 'engine-select-item' + (o.id === current ? ' active' : ''))
-    item.type = 'button'
-    item.setAttribute('role', 'option')
-    item.tabIndex = -1
-    item.setAttribute('aria-selected', String(o.id === current))
-    if (o.icon) item.append(engineIconImg(o.icon))
-    item.append(el('span', 'engine-select-name', o.name))
-    item.addEventListener('click', () => {
-      close()
-      onChange(o.id)
-    })
-    list.append(item)
-  }
-  if (footerItem) {
-    const item = el('button', 'engine-select-item engine-select-add' + (footerItem.id === current ? ' active' : ''))
-    item.type = 'button'
-    item.setAttribute('role', 'option')
-    item.tabIndex = -1
-    item.setAttribute('role', 'option')
-    item.append(el('span', 'engine-select-name', footerItem.label))
-    item.addEventListener('click', () => {
-      close()
-      onChange(footerItem.id)
-    })
-    list.append(item)
-  }
-  wrap.append(btn, list)
-  return wrap
-}
-
-/** 选择器底部「＋ 添加自定义引擎」伪选项 id（仅触发新建表单，不写入配置） */
 const ADD_CUSTOM_ENGINE_ID = '__add_custom_engine__'
+let inspectedEngine: string | null = null
 
-/** 新建自定义引擎表单的展开状态（跨 renderContent 保持；选中真实引擎 / 保存 / 取消后复位） */
-let customEngineAdding = false
-
-/**
- * 翻译引擎标签页：统一大卡片 = 引擎选择器 + 当前引擎配置区 + 连通性测试；
- * 自定义引擎（custom:<id>）的编辑/新建/删除也融入同一卡片，不再有独立管理卡片。
- */
 function renderEngine(root: HTMLElement): void {
+  const copy = (key: Parameters<typeof featureCopy>[0]) => featureCopy(key, config.uiLang)
   const options = getEngineOptions(config)
-  if (!options.some((o) => o.id === config.engine.provider)) {
-    // 配置中的引擎不在列表（如旧单 custom 引擎、已删除的自定义引擎）：兜底展示，避免空白
-    options.push({
-      id: config.engine.provider,
-      name: config.engine.provider,
-      desc: '',
-      icon: ENGINE_ICON_FILES.custom,
-    })
+  const currentId = config.engine.provider
+  const current = options.find(option => option.id === currentId) ?? {
+    id: currentId,
+    name: currentId === 'custom' ? copy('legacyEngine') : currentId,
+    desc: '',
+    icon: ENGINE_ICON_FILES.custom,
   }
-  const p = config.engine.provider
-  const adding = customEngineAdding
+  if (!options.includes(current)) options.push(current)
+  const selected = options.find(option => option.id === inspectedEngine) ?? current
+  const adding = inspectedEngine === ADD_CUSTOM_ENGINE_ID
+  const groups = [
+    { title: copy('freeEngines'), options: options.filter(option => FREE_ENGINE_IDS.includes(option.id)) },
+    { title: copy('foxmoriSubscription'), options: options.filter(option => option.id === 'foxmori') },
+    { title: copy('customEngines'), options: options.filter(option => option.id !== 'foxmori' && !FREE_ENGINE_IDS.includes(option.id)) },
+  ]
 
-  const c = card(ot('opt.s11', '引擎选择'), ot('opt.s12', '选择默认翻译引擎并完成其配置；免费引擎失败时自动降级到下一个免费引擎。'))
-  c.append(
-    fieldRow(
-      ot('opt.s13', '引擎'),
-      buildEngineSelect(
-        options,
-        adding ? ADD_CUSTOM_ENGINE_ID : p,
-        (id) => {
-          if (id === ADD_CUSTOM_ENGINE_ID) {
-            // 伪选项：仅展开新建表单，不改动已保存的 provider
-            customEngineAdding = true
-            renderContent()
-            return
-          }
-          customEngineAdding = false
-          void patchConfig({ engine: { ...config.engine, provider: id } })
-        },
-        { id: ADD_CUSTOM_ENGINE_ID, label: ot('opt.s14', '＋ 添加自定义引擎') },
-      ),
-    ),
-    el(
-      'p',
-      'engine-desc',
-      adding ? ot('opt.s15', '填写新引擎信息，保存后自动设为当前翻译引擎。') : options.find((o) => o.id === p)?.desc ?? '',
-    ),
-  )
+  const workspace = el('section', 'card engine-workspace')
+  const services = el('div', 'engine-services')
+  services.append(el('h2', 'card-title', copy('translationServices')))
+  const list = el('div', 'engine-service-list')
+  const picker = el('select', 'control engine-service-picker')
+  picker.setAttribute('aria-label', copy('translationServices'))
+  picker.setAttribute('aria-controls', 'engine-detail')
+  for (const group of groups) {
+    const section = el('div', 'engine-service-group')
+    section.append(el('h3', 'engine-group-title', group.title))
+    const optgroup = el('optgroup')
+    optgroup.label = group.title
+    for (const engine of group.options) {
+      const isCurrent = engine.id === currentId
+      const item = el('button', 'engine-service')
+      item.type = 'button'
+      item.dataset.engineId = engine.id
+      item.setAttribute('aria-pressed', String(!adding && engine.id === selected.id))
+      item.setAttribute('aria-controls', 'engine-detail')
+      if (engine.icon) item.append(engineIconImg(engine.icon))
+      item.append(el('span', 'engine-service-name', engine.name))
+      if (isCurrent) item.append(el('span', 'engine-current', copy('currentEngine')))
+      item.addEventListener('click', () => {
+        inspectedEngine = engine.id
+        renderContent()
+        contentEl.querySelector<HTMLElement>('.engine-service[aria-pressed="true"]')?.focus({ preventScroll: true })
+      })
+      section.append(item)
 
-  // 配置区：选择器正下方、同卡片内，随引擎联动
+      const option = el('option', '', isCurrent ? `${engine.name} · ${copy('currentEngine')}` : engine.name)
+      option.value = engine.id
+      optgroup.append(option)
+    }
+    list.append(section)
+    picker.append(optgroup)
+  }
+  if (adding) {
+    const placeholder = el('option', '', copy('addEngine'))
+    placeholder.value = ADD_CUSTOM_ENGINE_ID
+    placeholder.disabled = true
+    picker.prepend(placeholder)
+  }
+  picker.value = adding ? ADD_CUSTOM_ENGINE_ID : selected.id
+  picker.addEventListener('change', () => {
+    inspectedEngine = picker.value
+    renderContent()
+    contentEl.querySelector<HTMLElement>('.engine-service-picker')?.focus({ preventScroll: true })
+  })
+  const add = el('button', 'btn btn-secondary engine-add', copy('addEngine'))
+  add.type = 'button'
+  add.disabled = adding
+  add.addEventListener('click', () => {
+    inspectedEngine = ADD_CUSTOM_ENGINE_ID
+    renderContent()
+    contentEl.querySelector<HTMLElement>('.engine-detail-title')?.focus()
+  })
+  services.append(list, picker)
+  if (adding || selected.id !== currentId) {
+    services.append(el('p', 'engine-current-summary', fmt(copy('currentEngineSummary'), { p1: current.name })))
+  }
+  services.append(add)
+
+  const detail = el('section', 'engine-detail')
+  detail.id = 'engine-detail'
+  detail.setAttribute('aria-labelledby', 'engine-detail-title')
+  const title = el('h2', 'card-title engine-detail-title', adding ? copy('addEngine') : selected.name)
+  title.id = 'engine-detail-title'
+  title.tabIndex = -1
+  const description = adding ? ot('opt.s15', '填写新引擎信息，保存后自动设为当前翻译引擎。') : selected.desc
+  detail.append(title)
+  if (description) detail.append(el('p', 'card-desc engine-description', description))
   const configArea = el('div', 'engine-config')
   if (adding) {
     configArea.append(buildCustomEngineForm(null))
   } else {
-    buildProviderConfig(configArea, p)
+    buildProviderConfig(configArea, selected.id)
   }
-  c.append(configArea)
+  detail.append(configArea)
+  if (!adding) detail.append(buildEngineTest(selected.id, selected.id === currentId))
+  workspace.append(services, detail)
 
-  // 引擎连通性测试：用当前已保存配置翻译 "Hello"（background 复用 translate() 管线）
-  const testBtn = el('button', 'btn btn-secondary', ot('opt.s16', '测试连接'))
-  testBtn.type = 'button'
-  const testResult = el('p', 'hint')
-  testBtn.addEventListener('click', () => {
-    if (testBtn.disabled) return // loading 态防重复点击
-    testBtn.disabled = true
-    testBtn.textContent = ot('opt.s17', '测试中…')
-    testResult.textContent = ''
-    void (async () => {
-      try {
-        const r = await sendBg<TestEngineResult>({ kind: 'testEngine' })
-        if (r.ok) {
-          testResult.style.color = 'var(--tv-success)'
-          testResult.textContent = fmt(ot('opt.s18', '连接成功：Hello → {p1}（{p2}，{p3}ms）'), { p1: r.text ?? '', p2: r.engine, p3: r.elapsedMs })
-        } else {
-          testResult.style.color = 'var(--tv-danger-text)'
-          testResult.textContent = fmt(ot('opt.s19', '连接失败：{p1}（{p2}ms）'), { p1: r.error ?? '未知错误', p2: r.elapsedMs })
-        }
-      } catch (e) {
-        testResult.style.color = 'var(--tv-danger-text)'
-        testResult.textContent = fmt(ot('opt.s20', '连接失败：{p1}'), { p1: errMsg(e) })
-      } finally {
-        testBtn.disabled = false
-        testBtn.textContent = ot('opt.s16', '测试连接')
-      }
-    })()
-  })
-  // 请求超时并入引擎大卡片：分隔线之上为引擎配置，之下为超时与连通性测试
-  c.append(
-    el('hr', 'engine-divider'),
-    fieldRow(ot('opt.s21', '超时（毫秒）'), buildNumberInput(config.engine.timeoutMs, 1000, (v) => {
-      void patchConfig({ engine: { ...config.engine, timeoutMs: v } })
-    })),
-    fieldRow(ot('opt.s22', '连通性'), testBtn),
-    testResult,
-  )
-
-  // 批量翻译
   const batchCard = card(ot('opt.s23', '批量翻译'), ot('opt.s24', 'LLM 类引擎将多个短句聚合为一次请求，显著降低请求数、提升速度。'))
   batchCard.append(
     fieldRow(ot('opt.s25', '启用批量翻译'), buildSwitch(config.batch.enabled, ot('opt.s23', '批量翻译'), (v) => {
@@ -898,111 +945,106 @@ function renderEngine(root: HTMLElement): void {
       void patchConfig({ batch: { ...config.batch, intervalMs: v } })
     })),
   )
-
-  root.append(c, batchCard)
+  root.append(workspace, batchCard)
 }
 
-/** 当前引擎的配置区内容（统一卡片内，选择器正下方）；custom:<id> 时显示该引擎的编辑表单 */
-function buildProviderConfig(area: HTMLElement, p: string): void {
-  if (p === 'aimao') {
-    area.append(
-      fieldRow('Endpoint', el('span', 'field-static', 'https://api.aimao.today/v1')),
-      fieldRow(
-        ot('opt.s29', '模型'),
-        buildTextInput(config.engine.aimao.model, ot('opt.s30', '留空使用默认模型'), (v) => {
-          void patchConfig({ engine: { ...config.engine, aimao: { ...config.engine.aimao, model: v } } })
-        }),
-      ),
-    )
-    // API Key + 右侧「获取API秘钥」外链
-    const secret = buildSecretInput(config.engine.keys.aimao, t('engine.aimaoKeyPh', resolveUiLang(config.uiLang), '粘贴 aimao API Key'), (v) => {
-      void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, aimao: v } } })
+function buildEngineTest(provider: string, isCurrent: boolean): HTMLElement {
+  const panel = el('div', 'engine-test')
+  const testBtn = el('button', 'btn btn-secondary', ot('opt.s16', '测试连接'))
+  testBtn.type = 'button'
+  const testResult = el('p', 'hint engine-test-result')
+  testResult.setAttribute('role', 'status')
+  testBtn.addEventListener('click', async () => {
+    testBtn.disabled = true
+    testBtn.textContent = ot('opt.s17', '测试中…')
+    testResult.textContent = ''
+    try {
+      await pendingConfigSave
+      const r = await sendBg<TestEngineResult>({ kind: 'testEngine', provider })
+      if (r.ok) {
+        testResult.style.color = 'var(--tv-success)'
+        testResult.textContent = fmt(ot('opt.s18', '连接成功：Hello → {p1}（{p2}，{p3}ms）'), { p1: r.text ?? '', p2: r.engine, p3: r.elapsedMs })
+      } else {
+        testResult.style.color = 'var(--tv-danger-text)'
+        testResult.textContent = fmt(ot('opt.s19', '连接失败：{p1}（{p2}ms）'), { p1: r.error ?? '未知错误', p2: r.elapsedMs })
+      }
+    } catch (e) {
+      testResult.style.color = 'var(--tv-danger-text)'
+      testResult.textContent = fmt(ot('opt.s20', '连接失败：{p1}'), { p1: errMsg(e) })
+    } finally {
+      testBtn.disabled = false
+      testBtn.textContent = ot('opt.s16', '测试连接')
+    }
+  })
+  const actions = el('div', 'toolbar engine-test-actions')
+  actions.append(testBtn)
+  if (!isCurrent) {
+    const activate = el('button', 'btn', featureCopy('useEngine', config.uiLang))
+    activate.type = 'button'
+    activate.addEventListener('click', async () => {
+      activate.disabled = true
+      await patchEngine(engine => ({ ...engine, provider }), true)
+      if (activate.isConnected) activate.disabled = false
     })
-    const keyLink = el('a', 'apikey-link', t('engine.getApiKey', resolveUiLang(config.uiLang), '获取 API 密钥'))
-    keyLink.href = 'https://api.aimao.today/docs/'
-    keyLink.target = '_blank'
-    keyLink.rel = 'noopener noreferrer'
-    secret.append(keyLink)
-    area.append(fieldRow('API Key', secret))
+    actions.append(activate)
+  }
+  panel.append(
+    el('hr', 'engine-divider'),
+    fieldRow(ot('opt.s21', '超时（毫秒）'), buildNumberInput(config.engine.timeoutMs, 1000, (v) => {
+      void patchEngine(engine => ({ ...engine, timeoutMs: v }))
+    })),
+    actions,
+    testResult,
+  )
+  return panel
+}
+
+/** 配置当前查看的服务，包括自定义引擎编辑表单。 */
+function buildProviderConfig(area: HTMLElement, p: string): void {
+  if (p === 'foxmori') {
+    renderFoxmoriProvider(area, providerContext)
   } else if (p === 'deepl') {
     area.append(
       el('p', 'hint', ot('opt.s31', '密钥仅保存在本机浏览器中。')),
       fieldRow(
         'API Key',
         buildSecretInput(config.engine.keys.deepl, ot('opt.s32', '粘贴 DeepL API Key'), (v) => {
-          void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, deepl: v } } })
+          void patchEngine(engine => ({ ...engine, keys: { ...engine.keys, deepl: v } }))
         }),
       ),
     )
-  } else if (p === 'openai') {
+  } else if (p === 'openai' || p === 'deepseek') {
+    const placeholder = p === 'openai' ? 'https://api.openai.com/v1' : 'https://api.deepseek.com/v1'
+    const keyPlaceholder = p === 'openai' ? 'sk-...' : ot('opt.s33', 'sk-...（与 OpenAI 兼容引擎共用此密钥框）')
     area.append(
       fieldRow(
         'Endpoint',
-        buildTextInput(config.engine.openai.endpoint, 'https://api.openai.com/v1', (v) => {
-          void patchConfig({ engine: { ...config.engine, openai: { ...config.engine.openai, endpoint: v } } })
-        }),
-      ),
-      fieldRow(
-        ot('opt.s29', '模型'),
-        buildTextInput(config.engine.openai.model, 'gpt-4o-mini', (v) => {
-          void patchConfig({ engine: { ...config.engine, openai: { ...config.engine.openai, model: v } } })
+        buildTextInput(config.engine[p].endpoint, placeholder, (v) => {
+          void patchEngine(engine => ({ ...engine, [p]: { ...engine[p], endpoint: v } }))
         }),
       ),
       fieldRow(
         'API Key',
-        buildSecretInput(config.engine.keys.openai, 'sk-...', (v) => {
-          void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, openai: v } } })
+        buildSecretInput(config.engine.keys.openai, keyPlaceholder, (v) => {
+          void patchEngine(engine => ({ ...engine, keys: { ...engine.keys, openai: v } }))
         }),
       ),
+      renderModelField(p, providerContext),
     )
-  } else if (p === 'deepseek') {
+  } else if (p === 'claude' || p === 'gemini') {
+    const keyPlaceholder = p === 'claude' ? 'sk-ant-...' : 'AIza...'
+    const modelPlaceholder = p === 'claude' ? 'claude-haiku-4-5-20251001' : 'gemini-2.5-flash'
     area.append(
       fieldRow(
-        'Endpoint',
-        buildTextInput(config.engine.deepseek.endpoint, 'https://api.deepseek.com/v1', (v) => {
-          void patchConfig({ engine: { ...config.engine, deepseek: { ...config.engine.deepseek, endpoint: v } } })
+        'API Key',
+        buildSecretInput(config.engine.keys[p], keyPlaceholder, (v) => {
+          void patchEngine(engine => ({ ...engine, keys: { ...engine.keys, [p]: v } }))
         }),
       ),
       fieldRow(
         ot('opt.s29', '模型'),
-        buildTextInput(config.engine.deepseek.model, 'deepseek-chat', (v) => {
-          void patchConfig({ engine: { ...config.engine, deepseek: { ...config.engine.deepseek, model: v } } })
-        }),
-      ),
-      fieldRow(
-        'API Key',
-        buildSecretInput(config.engine.keys.openai, ot('opt.s33', 'sk-...（与 OpenAI 兼容引擎共用此密钥框）'), (v) => {
-          void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, openai: v } } })
-        }),
-      ),
-    )
-  } else if (p === 'claude') {
-    area.append(
-      fieldRow(
-        ot('opt.s29', '模型'),
-        buildTextInput(config.engine.claude.model, 'claude-haiku-4-5-20251001', (v) => {
-          void patchConfig({ engine: { ...config.engine, claude: { ...config.engine.claude, model: v } } })
-        }),
-      ),
-      fieldRow(
-        'API Key',
-        buildSecretInput(config.engine.keys.claude, 'sk-ant-...', (v) => {
-          void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, claude: v } } })
-        }),
-      ),
-    )
-  } else if (p === 'gemini') {
-    area.append(
-      fieldRow(
-        ot('opt.s29', '模型'),
-        buildTextInput(config.engine.gemini.model, 'gemini-2.5-flash', (v) => {
-          void patchConfig({ engine: { ...config.engine, gemini: { ...config.engine.gemini, model: v } } })
-        }),
-      ),
-      fieldRow(
-        'API Key',
-        buildSecretInput(config.engine.keys.gemini, 'AIza...', (v) => {
-          void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, gemini: v } } })
+        buildTextInput(config.engine[p].model, modelPlaceholder, (v) => {
+          void patchEngine(engine => ({ ...engine, [p]: { ...engine[p], model: v } }))
         }),
       ),
     )
@@ -1011,7 +1053,7 @@ function buildProviderConfig(area: HTMLElement, p: string): void {
       fieldRow(
         ot('opt.s34', '实例 URL'),
         buildTextInput(config.engine.keys.libreUrl, 'https://libretranslate.com', (v) => {
-          void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, libreUrl: v } } })
+          void patchEngine(engine => ({ ...engine, keys: { ...engine.keys, libreUrl: v } }))
         }),
       ),
     )
@@ -1029,20 +1071,20 @@ function buildProviderConfig(area: HTMLElement, p: string): void {
       fieldRow(
         ot('opt.s36', '接口 URL'),
         buildTextInput(config.engine.custom.url, 'https://example.com/translate', (v) => {
-          void patchConfig({ engine: { ...config.engine, custom: { ...config.engine.custom, url: v } } })
+          void patchEngine(engine => ({ ...engine, custom: { ...engine.custom, url: v } }))
         }),
       ),
       el('p', 'hint', ot('opt.s37', '请求体占位符：{{text}} 原文、{{from}} 源语言、{{to}} 目标语言，发送时按实际值替换。')),
       fieldTop(
         ot('opt.s38', '自定义请求体 JSON'),
         buildTextarea(config.engine.custom.bodyJson, 5, (v) => {
-          void patchConfig({ engine: { ...config.engine, custom: { ...config.engine.custom, bodyJson: v } } })
+          void patchEngine(engine => ({ ...engine, custom: { ...engine.custom, bodyJson: v } }))
         }),
       ),
       fieldTop(
         ot('opt.s39', '自定义请求头 JSON'),
         buildTextarea(config.engine.keys.customHeadersJson, 3, (v) => {
-          void patchConfig({ engine: { ...config.engine, keys: { ...config.engine.keys, customHeadersJson: v } } })
+          void patchEngine(engine => ({ ...engine, keys: { ...engine.keys, customHeadersJson: v } }))
         }),
       ),
       el('p', 'hint', ot('opt.s40', '请求头为 JSON 对象，如 {"Authorization":"Bearer xxx"}；留空则不附加。')),
@@ -1154,7 +1196,7 @@ function buildCustomEngineForm(editId: string | null): HTMLElement {
   const formHint = el('p', 'hint')
   const saveBtn = el('button', 'btn', editing ? ot('opt.s56', '保存') : ot('opt.s7', '添加'))
   saveBtn.type = 'button'
-  saveBtn.addEventListener('click', () => {
+  saveBtn.addEventListener('click', async () => {
     const name = nameInput.value.trim()
     const endpoint = endpointInput.value.trim()
     if (!name || !endpoint) {
@@ -1177,41 +1219,43 @@ function buildCustomEngineForm(editId: string | null): HTMLElement {
       headersJson,
     }
     if (editing) {
-      const list = config.engine.customEngines.map((e) => (e.id === editing.id ? entry : e))
-      void patchConfig({ engine: { ...config.engine, customEngines: list } })
+      void patchEngine(engine => ({
+        ...engine,
+        customEngines: engine.customEngines.map(e => e.id === editing.id ? entry : e),
+      }), true)
     } else {
-      // 新建保存后自动设为当前引擎
-      customEngineAdding = false
-      void patchConfig({
-        engine: {
-          ...config.engine,
-          customEngines: [...config.engine.customEngines, entry],
-          provider: `custom:${entry.id}`,
-        },
-      })
+      saveBtn.disabled = true
+      await patchEngine(engine => ({
+        ...engine,
+        customEngines: [...engine.customEngines, entry],
+        provider: `custom:${entry.id}`,
+      }))
+      saveBtn.disabled = false
+      if (!config.engine.customEngines.some(engine => engine.id === entry.id)) return
+      if (inspectedEngine === ADD_CUSTOM_ENGINE_ID) inspectedEngine = null
+      if (activeTab === 'engine') renderContent()
     }
   })
 
   const btnRow = el('div', 'toolbar')
   btnRow.append(saveBtn)
   if (editing) {
-    // 删除此引擎；若删的是当前引擎，回退到 AI猫
+    // 删除此引擎；若删的是当前引擎，回退到 Foxmori
     const delBtn = el('button', 'btn-link-danger', ot('opt.s59', '删除此引擎'))
     delBtn.type = 'button'
     delBtn.addEventListener('click', () => {
-      const nextEngine = {
-        ...config.engine,
-        customEngines: config.engine.customEngines.filter((e) => e.id !== editing.id),
-      }
-      if (nextEngine.provider === `custom:${editing.id}`) nextEngine.provider = 'aimao'
-      void patchConfig({ engine: nextEngine })
+      void patchEngine(engine => ({
+        ...engine,
+        customEngines: engine.customEngines.filter(e => e.id !== editing.id),
+        provider: engine.provider === `custom:${editing.id}` ? 'foxmori' : engine.provider,
+      }), true)
     })
     btnRow.append(delBtn)
   } else {
     const cancelBtn = el('button', 'btn btn-secondary', ot('opt.s60', '取消'))
     cancelBtn.type = 'button'
     cancelBtn.addEventListener('click', () => {
-      customEngineAdding = false
+      inspectedEngine = null
       renderContent()
     })
     btnRow.append(cancelBtn)
@@ -1235,25 +1279,28 @@ function buildCustomEngineForm(editId: string | null): HTMLElement {
 // ===== 标签页 3：译文样式 =====
 
 function renderStyle(root: HTMLElement): void {
-  const c = card(ot('opt.s62', '样式选择'), ot('opt.s63', '选择译文在页面中的展示样式；大号预览字符为实时预览。'))
-  const grid = el('div', 'style-grid')
-  for (const s of TRANSLATION_STYLES) {
-    const label = el('label', 'style-card' + (config.style.styleId === s.id ? ' selected' : ''))
-    const input = el('input')
-    input.type = 'radio'
-    input.name = 'styleId'
-    input.value = s.id
-    input.checked = config.style.styleId === s.id
-    // 预览：复用 content.css 的 tv-style-* 类名（同名样式在 style.css 中定义）
-    const preview = el('div', 'style-preview')
-    preview.append(el('span', s.className, previewGlyph(resolveUiLang(config.uiLang))))
-    label.append(input, preview, el('div', 'style-name', styleName(s, resolveUiLang(config.uiLang))), el('div', 'style-name-en', s.nameEn))
-    input.addEventListener('change', () => {
-      if (input.checked) void patchConfig({ style: { styleId: s.id } })
-    })
-    grid.append(label)
+  const c = card(ot('opt.s62', '样式选择'), featureCopy('stylePreviewHint', config.uiLang))
+  const settings = el('div', 'settings-with-preview')
+  const preview = el('div', 'style-sample')
+  const showPreview = (styleId: string) => {
+    preview.replaceChildren(createReadingPreview({ ...config, style: { styleId } }, 'stylePreview'))
   }
-  c.append(grid)
+  const ui = resolveUiLang(config.uiLang)
+  const selected = getStyle(config.style.styleId).id
+  const picker = buildEnumSelect(
+    TRANSLATION_STYLES.map(style => ({ value: style.id, label: styleName(style, ui) })),
+    selected,
+    async (styleId) => {
+      showPreview(styleId)
+      await patchConfig({ style: { styleId } }, false)
+      if (!picker.isConnected || picker.value !== styleId) return
+      picker.value = getStyle(config.style.styleId).id
+      if (picker.value !== styleId) showPreview(picker.value)
+    },
+  )
+  showPreview(selected)
+  settings.append(fieldTop(tabLabel('style', '译文样式'), picker), preview)
+  c.append(settings)
   root.append(c)
 }
 
@@ -1272,12 +1319,16 @@ function renderPrivacy(root: HTMLElement): void {
     })),
   )
 
-  const statsCard = card(ot('opt.s67', '使用统计'), ot('opt.s68', '本扩展无账号、无遥测，以下数据仅保存在本机。'))
+  const statsCard = card(ot('opt.s67', '使用统计'), t('stats.localOnly', resolveUiLang(config.uiLang), '以下统计仅保存在本机。'))
   const row = el('div', 'field')
   row.append(el('span', 'field-label', ot('opt.s69', '已翻译字符数')), el('span', 'stat-value', config.stats.translatedChars.toLocaleString()))
   statsCard.append(row)
 
-  root.append(maskCard, statsCard)
+  const policy = el('a', 'settings-link', uiCopy('privacy', config.uiLang))
+  policy.href = chrome.runtime.getURL('privacy.html')
+  policy.target = '_blank'
+  policy.rel = 'noopener noreferrer'
+  root.append(maskCard, statsCard, policy)
 }
 
 // ===== 标签页 5：术语表 =====
@@ -1463,8 +1514,9 @@ function renderGlossary(root: HTMLElement): void {
 function renderWords(root: HTMLElement): void {
   const c = card(ot('opt.s85', '生词本'), ot('opt.s86', '浏览、导出或导入收藏的生词；数据仅保存在本机浏览器中。'))
 
-  // 工具条：导出 / 导入
   const toolbar = el('div', 'toolbar')
+  const review = el('a', 'btn settings-review', featureCopy('startReview', config.uiLang))
+  review.href = chrome.runtime.getURL('review.html')
   const exportBtn = el('button', 'btn btn-secondary', ot('opt.s87', '导出 JSON'))
   exportBtn.type = 'button'
   exportBtn.disabled = words.length === 0
@@ -1480,7 +1532,7 @@ function renderWords(root: HTMLElement): void {
     fileInput.value = '' // 允许重复导入同一文件
   })
   importLabel.append(fileInput)
-  toolbar.append(exportBtn, importLabel)
+  toolbar.append(review, exportBtn, importLabel)
   c.append(toolbar)
 
   if (!wordsLoaded) {
@@ -1624,40 +1676,78 @@ async function importWords(file: File): Promise<void> {
 // ===== 标签页 7：交互 =====
 
 function renderVideo(root: HTMLElement): void {
+  const copy = (key: Parameters<typeof featureCopy>[0]) => featureCopy(key, config.uiLang)
+  const style = el('style')
+  style.textContent = SUBTITLE_SETTINGS_CSS
   const subCard = card(
-    ot('opt.s130', '视频与会议字幕翻译'),
+    copy('captionSettings'),
     ot('opt.s131', 'YouTube 双语字幕；Google Meet / Teams / Zoom 会议实时字幕翻译。'),
   )
-  subCard.append(
-    fieldRow(ot('opt.s132', '启用字幕翻译'), buildSwitch(config.subtitles.enabled, ot('opt.s133', '字幕翻译'), (v) => {
-      void patchConfig({ subtitles: { ...config.subtitles, enabled: v } })
-    })),
-    fieldRow(ot('opt.s134', 'YouTube 双语字幕'), buildSwitch(config.subtitles.youtube, ot('opt.s135', 'YouTube 字幕'), (v) => {
-      void patchConfig({ subtitles: { ...config.subtitles, youtube: v } })
-    })),
-    fieldRow(ot('opt.s136', '会议字幕（Meet/Teams/Zoom）'), buildSwitch(config.subtitles.meet, ot('opt.s137', '会议字幕'), (v) => {
-      void patchConfig({ subtitles: { ...config.subtitles, meet: v } })
-    })),
+  const preview = createCaptionPreview(config.uiLang, config.subtitles)
+  const save = async (patch: SubtitlePatch, redraw = false): Promise<void> => {
+    try {
+      const subtitles = await sendBg<SubtitlePreferences>({ kind: 'setSubtitlePreferences', patch })
+      config = { ...config, subtitles }
+      showToast(ot('opt.s9', '已保存'))
+    } catch (error) {
+      showToast(fmt(ot('opt.s10', '保存失败：{p1}'), { p1: errMsg(error) }))
+      redraw = true
+    }
+    if (redraw && activeTab === 'video') renderContent()
+  }
+  const switches = el('div', 'video-switches')
+  const switchRow = (label: string, key: 'enabled' | 'youtube' | 'showShortcut' | 'meet') =>
+    fieldRow(label, buildSwitch(config.subtitles[key], label, value => { void save({ [key]: value }, true) }))
+  switches.append(
+    switchRow(ot('opt.s132', '启用字幕翻译'), 'enabled'),
+    switchRow(t('video.autoStart', resolveUiLang(config.uiLang), '自动翻译 YouTube 字幕'), 'youtube'),
+    switchRow(copy('showShortcut'), 'showShortcut'),
+    switchRow(ot('opt.s136', '会议字幕（Meet/Teams/Zoom）'), 'meet'),
   )
+  const hint = el('p', 'hint', copy('videoGuide'))
+  if (config.hotkeys.toggleSubtitles) {
+    const shortcut = el('kbd', 'video-shortcut', config.hotkeys.toggleSubtitles)
+    shortcut.title = copy('toggleHotkey')
+    hint.append(' ', shortcut)
+  }
+  subCard.append(switches, hint, el('p', 'hint', copy('captionRequirements')))
 
-  subCard.append(el('p', 'hint', uiCopy('videoHint', config.uiLang)))
-  root.append(subCard)
+  const styleCard = card(copy('captionStyle'), copy('captionGlobalHint'))
+  const styleSettings = el('div', 'settings-with-preview caption-settings')
+  const previewPane = el('div', 'caption-preview-pane')
+  previewPane.append(preview.element)
+  styleSettings.append(previewPane, renderSubtitlePreferences({
+    preferences: config.subtitles, lang: config.uiLang, includeDisplay: true, includeStyle: true,
+    onChange: patch => { void save(patch) }, onPreview: preview.update,
+    allowReset: true,
+  }))
+  styleCard.append(styleSettings)
+  root.append(style, subCard, styleCard)
+}
+
+let selectionAdvancedOpen = false
+
+function interactionCard(title: string, scope: string, enabled: boolean, onChange: (enabled: boolean) => void): HTMLElement {
+  const section = el('section', 'card interaction-card')
+  const heading = el('div', 'interaction-heading')
+  heading.append(el('h2', 'card-title', title), buildSwitch(enabled, title, onChange))
+  section.append(heading, el('p', 'card-desc', scope))
+  return section
 }
 
 function renderInteraction(root: HTMLElement): void {
-  // 悬停翻译
-  const hoverCard = card(ot('opt.s106', '悬停翻译'), ot('opt.s107', '按住修饰键并将鼠标悬停在段落上，即可只翻译该段。'))
+  const copy = (key: Parameters<typeof featureCopy>[0]) => featureCopy(key, config.uiLang)
+  const hoverCard = interactionCard(ot('opt.s106', '悬停翻译'), copy('hoverScope'), config.hover.enabled, enabled => {
+    void patchConfig({ hover: { ...config.hover, enabled } })
+  })
   hoverCard.append(
-    fieldRow(ot('opt.s108', '启用悬停翻译'), buildSwitch(config.hover.enabled, ot('opt.s106', '悬停翻译'), (v) => {
-      void patchConfig({ hover: { ...config.hover, enabled: v } })
-    })),
     fieldRow(
-      ot('opt.s109', '修饰键'),
+      ot('opt.s122', '触发方式'),
       buildEnumSelect(
         [
-          { value: 'alt', label: 'Alt' },
-          { value: 'ctrl', label: 'Ctrl' },
-          { value: 'shift', label: 'Shift' },
+          { value: 'alt', label: fmt(copy('hoverWithKey'), { p1: 'Alt' }) },
+          { value: 'ctrl', label: fmt(copy('hoverWithKey'), { p1: 'Ctrl' }) },
+          { value: 'shift', label: fmt(copy('hoverWithKey'), { p1: 'Shift' }) },
           { value: 'none', label: ot('opt.s110', '直接悬停（无需按键）') },
         ],
         config.hover.key,
@@ -1668,13 +1758,15 @@ function renderInteraction(root: HTMLElement): void {
     ),
   )
 
-  // 划词翻译
-  const selCard = card(ot('opt.s111', '划词翻译'), ot('opt.s112', '选中文字后弹出气泡，可查看译文、AI 解析并收藏生词。'))
-  selCard.append(
-    fieldRow(ot('opt.s113', '启用划词翻译'), buildSwitch(config.selection.enabled, ot('opt.s111', '划词翻译'), (v) => {
-      void patchConfig({ selection: { ...config.selection, enabled: v } })
-    })),
-    fieldRow(
+  const selCard = interactionCard(ot('opt.s111', '划词翻译'), copy('selectionScope'), config.selection.enabled, enabled => {
+    void patchConfig({ selection: { ...config.selection, enabled } })
+  })
+  const advanced = el('details', 'engine-advanced interaction-advanced')
+  advanced.open = selectionAdvancedOpen
+  advanced.addEventListener('toggle', () => { selectionAdvancedOpen = advanced.open })
+  const advancedBody = el('div', 'engine-advanced-body')
+  advancedBody.append(
+    fieldTop(
       ot('opt.s114', '显示模式'),
       buildRadioGroup(
         'selectionMode',
@@ -1684,19 +1776,24 @@ function renderInteraction(root: HTMLElement): void {
         ],
         config.selection.mode,
         (v) => {
+          selectionAdvancedOpen = advanced.open
           void patchConfig({ selection: { ...config.selection, mode: v } })
         },
       ),
     ),
-  )
-
-  // 输入框翻译
-  const inputCard = card(ot('opt.s119', '输入框翻译'), ot('opt.s120', '在输入框 / 文本域中触发翻译，译文仅供参考，不会自动替换你的输入。'))
-  inputCard.append(
-    fieldRow(ot('opt.s121', '启用输入框翻译'), buildSwitch(config.input.enabled, ot('opt.s119', '输入框翻译'), (v) => {
-      void patchConfig({ input: { ...config.input, enabled: v } })
+    fieldRow(copy('selectionMaxChars'), buildNumberInput(config.selection.maxChars, 1, (maxChars) => {
+      selectionAdvancedOpen = advanced.open
+      void patchConfig({ selection: { ...config.selection, maxChars } })
     })),
-    fieldRow(
+  )
+  advanced.append(el('summary', 'engine-advanced-summary', copy('interactionAdvanced')), advancedBody)
+  selCard.append(advanced)
+
+  const inputCard = interactionCard(ot('opt.s119', '输入框翻译'), copy('inputScope'), config.input.enabled, enabled => {
+    void patchConfig({ input: { ...config.input, enabled } })
+  })
+  inputCard.append(
+    fieldTop(
       ot('opt.s122', '触发方式'),
       buildRadioGroup(
         'inputTrigger',
@@ -1721,15 +1818,12 @@ function renderInteraction(root: HTMLElement): void {
     ),
   )
 
-  // 悬浮球
-  const ballCard = card(ot('opt.s127', '悬浮球'), ot('opt.s128', '在页面右下角显示悬浮球，点击即可快速开关整页翻译。'))
-  ballCard.append(
-    fieldRow(ot('opt.s129', '启用悬浮球'), buildSwitch(config.floatingBall.enabled, ot('opt.s127', '悬浮球'), (v) => {
-      void patchConfig({ floatingBall: { enabled: v } })
-    })),
+  const ballCard = interactionCard(
+    ot('opt.s127', '悬浮球'),
+    ot('opt.s128', '在页面右下角显示悬浮球，点击即可快速开关整页翻译。'),
+    config.floatingBall.enabled,
+    enabled => { void patchConfig({ floatingBall: { enabled } }) },
   )
-
-  // 视频与会议字幕
   root.append(hoverCard, selCard, inputCard, ballCard)
 }
 

@@ -1,6 +1,8 @@
 // YouTube 双语字幕渲染：Shadow DOM 隔离面板 + timeupdate 二分查找 + 广告检测
 import { getSubtitlesConfig, translateText, type SubtitleCue } from './types'
 import type { BgResponse } from '../shared/protocol'
+import type { SubtitlePreferences } from '../shared/config'
+import { applyCaptionStyle, CAPTION_LINE_CSS } from '../shared/subtitleSettings'
 
 const HOST_ID = 'tv-yt-subtitle-host'
 const NATIVE_HIDE_STYLE_ID = 'tv-yt-native-cap-hide'
@@ -105,23 +107,20 @@ export class YouTubeRenderer {
 
     const shadow = host.attachShadow({ mode: 'open' })
     const style = document.createElement('style')
-    style.textContent = [
-      '.tv-panel{position:absolute;left:50%;bottom:9%;transform:translateX(-50%);',
-      'max-width:82%;display:none;flex-direction:column;align-items:center;gap:4px;',
-      'text-align:center;pointer-events:none;font-family:Roboto,Arial,sans-serif;}',
+    style.textContent = CAPTION_LINE_CSS + [
+      '.tv-panel{position:absolute;left:50%;bottom:max(9%,52px);transform:translateX(-50%);',
+      'width:max-content;max-width:82%;display:none;',
+      'pointer-events:none;font-family:system-ui,Arial,sans-serif;}',
       '.tv-panel.tv-show{display:flex;}',
-      '.tv-line{display:inline-block;background:rgba(0,0,0,.6);color:#fff;',
-      'border-radius:10px;padding:2px 10px;line-height:1.4;white-space:pre-wrap;',
-      'box-shadow:0 4px 12px rgba(15,23,42,.08);}',
-      '.tv-orig{font-size:clamp(11px,1.7vmin,20px);opacity:.85;}',
-      '.tv-trans{font-size:clamp(14px,2.4vmin,30px);font-weight:500;}',
+      '.tv-orig{--ft-caption-base:clamp(12px,1.85vmin,22px);}',
+      '.tv-trans{--ft-caption-base:clamp(14px,2.35vmin,30px);}',
       // 单词 span：面板整体 pointer-events:none，单词单独放开
       '.tv-yt-word{pointer-events:auto;cursor:pointer;border-radius:2px;}',
       '.tv-yt-word:hover{text-decoration:underline;}',
       // 查词卡片
       '.tv-word-card{position:absolute;pointer-events:auto;min-width:140px;max-width:260px;',
       'background:rgba(20,20,20,.95);color:#fff;border-radius:10px;padding:8px 10px;',
-      'font-family:Roboto,Arial,sans-serif;font-size:13px;line-height:1.5;text-align:left;',
+      'font-family:system-ui,Arial,sans-serif;font-size:13px;line-height:1.5;text-align:left;',
       'box-shadow:0 8px 24px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:6px;}',
       '.tv-wc-word{font-weight:600;font-size:15px;}',
       '.tv-wc-trans{opacity:.85;white-space:pre-wrap;}',
@@ -132,11 +131,11 @@ export class YouTubeRenderer {
       '.tv-wc-save[disabled]{opacity:.6;cursor:default;border-color:transparent;}',
     ].join('')
     const panel = document.createElement('div')
-    panel.className = 'tv-panel'
+    panel.className = 'tv-panel ft-caption-lines'
     const orig = document.createElement('div')
-    orig.className = 'tv-line tv-orig'
+    orig.className = 'ft-caption-line ft-caption-original tv-orig'
     const trans = document.createElement('div')
-    trans.className = 'tv-line tv-trans'
+    trans.className = 'ft-caption-line ft-caption-translation tv-trans'
     orig.addEventListener('click', this.onWordClick)
     panel.appendChild(orig)
     panel.appendChild(trans)
@@ -169,6 +168,13 @@ export class YouTubeRenderer {
     this.cues = cues
     this.currentCueStart = -1
     this.syncToTime(true)
+  }
+
+  setPreferences(preferences: SubtitlePreferences): void {
+    if (this.panel && this.origLine && this.transLine) {
+      applyCaptionStyle(this.panel, this.origLine, this.transLine, preferences)
+      if (preferences.displayMode === 'translationOnly') this.closeWordCard()
+    }
   }
 
   /** 单条译文到达：就地更新，若正在显示则刷新 */

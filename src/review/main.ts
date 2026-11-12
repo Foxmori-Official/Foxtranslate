@@ -21,6 +21,8 @@ import type { BgRequest, BgResponse, WordItem } from '../shared/protocol'
 import type { Config } from '../shared/config'
 import { fmt, resolveUiLang, t, type ResolvedLang } from '../shared/i18n'
 import { watchUiLang } from '../shared/i18n-pages'
+import { appNavigation } from '../shared/appShell'
+import { featureCopy } from '../shared/featureCopy'
 
 // ===== 消息封装 =====
 
@@ -120,7 +122,7 @@ type ResultKind = 'empty' | 'todayDone' | 'sessionDone'
 let resultShown: { kind: ResultKind; canContinue: boolean } | null = null
 
 // 顶部栏（常驻）
-const topbar = el('aside', 'topbar')
+const topbar = el('header', 'topbar')
 const brand = el('div', 'brand')
 const brandIcon = el('img')
 brandIcon.src = chrome.runtime.getURL('icons/icon48.png')
@@ -129,19 +131,25 @@ brandIcon.alt = ''
 brand.append(brandIcon)
 const brandName = el('span', 'brand-name', 'Foxtranslate')
 brand.append(brandName)
+const reviewHeading = el('div', 'review-heading')
+let navigation = appNavigation('review', uiLang, true)
+reviewHeading.append(brand, navigation)
 const progressArea = el('div', 'progress-area')
 const progressText = el('div', 'progress-text', '')
 const progressBar = el('div', 'progress-bar')
 const progressFill = el('div', 'progress-fill')
 progressBar.append(progressFill)
 progressArea.append(progressText, progressBar)
-const exitLink = el('a', 'exit-link', '结束复习')
-exitLink.href = '#'
+const exitLink = el('a', 'exit-link', featureCopy('backToWordbook', uiLang))
+exitLink.href = chrome.runtime.getURL('options.html#words')
 exitLink.addEventListener('click', (e) => {
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
   e.preventDefault()
   void exitReview()
 })
-topbar.append(brand, progressArea, exitLink)
+const reviewProgress = el('div', 'review-progress')
+reviewProgress.append(progressArea, exitLink)
+topbar.append(reviewHeading, reviewProgress)
 
 // 舞台（卡片 / 评分 / 提示 / 完成态都在这里切换）
 const stage = el('main', 'stage')
@@ -309,6 +317,7 @@ function updateGradePreviews(): void {
 
 // ===== 评分 =====
 
+let pendingGrade: Promise<unknown> = Promise.resolve()
 function grade(rating: GradeRating): void {
   if (!flipped || transitioning) return
   const item = current()
@@ -319,7 +328,7 @@ function grade(rating: GradeRating): void {
   // 本地乐观：先翻回正面，0.15s 过渡后取下一张
   flipped = false
   applyFlip()
-  sendBg<unknown>({ kind: 'reviewGrade', wordId: item.word.id, rating }).catch((e: unknown) => {
+  pendingGrade = sendBg<unknown>({ kind: 'reviewGrade', wordId: item.word.id, rating }).catch((e: unknown) => {
     showToast(fmt(L('review.toast.gradeFailed', '评分保存失败：{msg}'), { msg: errMsg(e) }))
   })
 
@@ -410,7 +419,7 @@ function buildResultPanel(opts: { kind: ResultKind; canContinue: boolean }): HTM
     againBtn.addEventListener('click', () => void continueSession())
     actions.append(againBtn)
   }
-  const doneBtn = el('button', 'btn ghost', L('review.exit', '结束复习'))
+  const doneBtn = el('button', 'btn ghost', featureCopy('backToWordbook', uiLang))
   doneBtn.type = 'button'
   doneBtn.addEventListener('click', () => void exitReview())
   actions.append(doneBtn)
@@ -466,13 +475,9 @@ async function continueSession(): Promise<void> {
   renderCard()
 }
 
-/** 结束复习：回设置页；失败则尝试直接关闭标签页 */
 async function exitReview(): Promise<void> {
-  try {
-    await chrome.runtime.openOptionsPage()
-  } catch {
-    window.close()
-  }
+  await pendingGrade
+  window.location.assign(exitLink.href)
 }
 
 // ===== 界面语言 =====
@@ -480,7 +485,10 @@ async function exitReview(): Promise<void> {
 /** 按当前界面语言刷新常驻文案，并重绘当前视图（卡片或结果面板） */
 function refreshTexts(): void {
   brandName.textContent = L('review.title', 'Foxtranslate 闪卡复习')
-  exitLink.textContent = L('review.exit', '结束复习')
+  exitLink.textContent = featureCopy('backToWordbook', uiLang)
+  const localizedNav = appNavigation('review', uiLang, true)
+  navigation.replaceWith(localizedNav)
+  navigation = localizedNav
   for (const def of GRADE_DEFS) {
     const labelEl = gradeBtns.get(def.rating)?.querySelector<HTMLElement>('.g-label')
     if (labelEl) labelEl.textContent = L(def.labelKey, def.zh)
@@ -508,6 +516,7 @@ const KEY_GRADES: Readonly<Record<string, GradeRating>> = {
 }
 
 document.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLElement && e.target.closest('a,button,input,select,textarea')) return
   if (queue.length === 0 || pos >= queue.length) return
   if (e.key === ' ' || e.key === 'Enter') {
     e.preventDefault()
