@@ -1,5 +1,6 @@
 import type { Config } from '../shared/config'
 import { getExpert } from '../core/experts'
+import { normalizeConcurrency } from '../shared/translationLimits'
 
 /** Only hashes leave this module; credentials never become storage keys or log messages. */
 export async function stableDigest(value: unknown): Promise<string> {
@@ -95,8 +96,7 @@ export async function scheduleRequest<T>(config: Config, run: () => Promise<T>, 
     state = { active: 0, limit: 1, pending: [], blockedUntil: 0 }
     accounts.set(key, state)
   }
-  const concurrency = config.batch.concurrency
-  state.limit = Number.isFinite(concurrency) ? Math.max(1, Math.min(8, Math.floor(concurrency))) : 3
+  state.limit = normalizeConcurrency(config.batch.concurrency)
   if (state.pending.length >= MAX_PENDING) throw new Error('Translation queue is full. Please try again later.')
   return new Promise<T>((resolve, reject) => {
     state.pending.push({ run, resolve: resolve as (value: unknown) => void, reject, priority })

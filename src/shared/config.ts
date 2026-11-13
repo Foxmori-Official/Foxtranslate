@@ -1,6 +1,7 @@
 // Config 契约：单一对象 + 读时归一化（normalizeConfig 白名单逐 key 拷贝，等价于隐式 schema 迁移）
 import { BUILTIN_EXPERTS, type ExpertPreset } from '../core/experts'
 import { normalizeUiLang, type UiLangCode } from './i18n'
+import { TRANSLATION_CONCURRENCY, BATCH_MAX_TEXTS, normalizeConcurrency, normalizeBatchMaxTexts } from './translationLimits'
 
 export type { ExpertPreset }
 export interface GlossaryTerm { src: string; dst: string }
@@ -144,7 +145,7 @@ export const DEFAULT_CONFIG: Config = {
     custom: { url: '', bodyJson: '{"text":"{{text}}","from":"{{from}}","to":"{{to}}"}' },
     timeoutMs: 20000,
   },
-  batch: { enabled: true, maxTexts: 8, maxChars: 1200, intervalMs: 120, concurrency: 3 },
+  batch: { enabled: true, maxTexts: BATCH_MAX_TEXTS.default, maxChars: 1200, intervalMs: 120, concurrency: TRANSLATION_CONCURRENCY.default },
   style: { styleId: 'soft-gray' },
   selection: { enabled: true, mode: 'bilingual', maxChars: 2000 },
   hover: { enabled: true, key: 'alt' },
@@ -196,6 +197,8 @@ export function normalizeConfig(raw: unknown): Config {
   const stored = isObj(raw) ? raw : {}
   const config = merge(DEFAULT_CONFIG, stored)
   config.uiLang = normalizeUiLang(config.uiLang)
+  config.batch.concurrency = normalizeConcurrency(config.batch.concurrency)
+  config.batch.maxTexts = normalizeBatchMaxTexts(config.batch.maxTexts)
   const storedLibraries = stored.glossaryLibs
   // Library IDs are dynamic, so the default shape cannot enumerate their switches.
   if (isObj(storedLibraries) && isObj(storedLibraries.enabled)) {

@@ -5,8 +5,9 @@ import { injectTranslation, removeTranslation, removeAllTranslations, showLoadin
 import { normalizeText, sameText } from '../core/text'
 import type { PageConfig } from '../shared/pageConfig'
 import type { BgResponse, TranslateResult } from '../shared/protocol'
+import { isAiProvider } from '../shared/engines'
+import { normalizeConcurrency, normalizeBatchMaxTexts } from '../shared/translationLimits'
 
-const MAX_CONCURRENT = 4
 const IO_ROOT_MARGIN = '400px 0px'
 const MO_DEBOUNCE_MS = 120
 const SCAN_BUDGET_MS = 6
@@ -59,6 +60,7 @@ function sourceText(el: Element): string {
 }
 
 type TranslationSettings = Pick<PageConfig, 'general' | 'style' | 'contextAware'>
+type PageTranslationSettings = TranslationSettings & Pick<PageConfig, 'engine' | 'batch'>
 
 async function requestTranslate(text: string, config: TranslationSettings, signal?: AbortSignal): Promise<TranslateResult> {
   signal?.throwIfAborted()
@@ -119,7 +121,7 @@ export async function translateElement(el: Element, config: TranslationSettings,
 }
 
 export class PageTranslator {
-  private getConfig: () => TranslationSettings
+  private getConfig: () => PageTranslationSettings
   private io: IntersectionObserver | null = null
   private mo: MutationObserver | null = null
   private pending = new Set<Element>()
@@ -134,7 +136,7 @@ export class PageTranslator {
   translatedCount = 0
   failedCount = 0
 
-  constructor(getConfig: () => TranslationSettings) {
+  constructor(getConfig: () => PageTranslationSettings) {
     this.getConfig = getConfig
   }
 
@@ -144,6 +146,11 @@ export class PageTranslator {
 
   counts(): { translatedCount: number; failedCount: number } {
     return { translatedCount: this.translatedCount, failedCount: this.failedCount }
+  }
+
+  /** Apply a larger window immediately; a smaller window lets active work finish. */
+  refreshConcurrency(): void {
+    this.drain()
   }
 
   /** 切换整页翻译状态，返回切换后状态 */
@@ -295,7 +302,13 @@ export class PageTranslator {
   }
 
   private drain() {
-    while (this.session && this.running < MAX_CONCURRENT && this.pending.size) {
+    const config = this.getConfig()
+    // Supply enough paragraphs to fill every AI batch slot. Actual HTTP requests
+    // still share the account limiter with subtitles, selection and other tabs.
+    const batchSize = config.batch.enabled && isAiProvider(config.engine.provider)
+      ? normalizeBatchMaxTexts(config.batch.maxTexts) : 1
+    const window = normalizeConcurrency(config.batch.concurrency) * batchSize
+    while (this.session && this.running < window && this.pending.size) {
       const el = this.pending.values().next().value as Element
       this.unobserve(el)
       if (!el.isConnected || el.hasAttribute('data-tv-translated')) continue

@@ -128,6 +128,30 @@ describe('actual request budgets', () => {
     expect(calls).toEqual(['first', 'later'])
   })
 
+  it.each([[0, 1], [5, 5], [99, 8], [NaN, 3]])('enforces actual network concurrency %s as %s', async (value, expected) => {
+    const c = config()
+    c.engine.keys.openai = 'bounded-fixture-' + value
+    c.batch.concurrency = value
+    let active = 0
+    let peak = 0
+    const releases: Array<() => void> = []
+    const tasks = Array.from({ length: 12 }, () => scheduleRequest(c, async () => {
+      peak = Math.max(peak, ++active)
+      await new Promise<void>(resolve => releases.push(resolve))
+      active--
+    }))
+    await vi.waitFor(() => expect(releases.length).toBe(expected))
+    expect(active).toBe(expected)
+    for (let done = 0; done < tasks.length;) {
+      const current = releases.splice(0)
+      for (const release of current) release()
+      done += current.length
+      if (done < tasks.length) await vi.waitFor(() => expect(releases.length).toBeGreaterThan(0))
+    }
+    await Promise.all(tasks)
+    expect(peak).toBe(expected)
+  })
+
   it('prioritizes the current subtitle over queued background requests without exceeding the limit', async () => {
     const c = config()
     c.batch.concurrency = 1

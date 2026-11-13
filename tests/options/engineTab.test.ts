@@ -89,6 +89,31 @@ function cfgWithCustomEngine(): Config {
 }
 
 describe("翻译引擎标签页", () => {
+  it.each(['zh-CN', 'en'] as const)("%s exposes, bounds and saves concurrency independently of batching", async lang => {
+    const cfg = structuredClone(DEFAULT_CONFIG);
+    cfg.uiLang = lang;
+    cfg.batch.enabled = false;
+    await bootEngineTab(cfg);
+    const label = lang === 'en' ? 'Concurrent requests' : '并发请求数';
+    const input = () => qs<HTMLInputElement>(`input[aria-label="${label}"]`);
+    expect(input().min).toBe('1');
+    expect(input().max).toBe('8');
+    expect(input().value).toBe('3');
+    for (const [raw, expected] of [['20', 8], ['0', 1], ['5.9', 5]] as const) {
+      input().value = raw;
+      input().dispatchEvent(new Event('change'));
+      await flush();
+      expect(stored.batch.concurrency).toBe(expected);
+      expect(input().value).toBe(String(expected));
+      expect(stored.batch.enabled).toBe(false);
+    }
+    input().value = '';
+    input().dispatchEvent(new Event('change'));
+    await flush();
+    expect(input().value).toBe('5');
+    expect(stored.batch.concurrency).toBe(5);
+  });
+
   it("左侧按服务分组，右侧显示当前引擎的配置和测试", async () => {
     const cfg = structuredClone(DEFAULT_CONFIG);
     cfg.uiLang = 'zh-CN'; // 测试断言中文界面：显式中文（默认 auto 在测试环境解析为英文）

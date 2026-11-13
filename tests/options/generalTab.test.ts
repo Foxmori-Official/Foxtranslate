@@ -167,7 +167,7 @@ describe("通用标签页", () => {
     ).toBe("en");
   });
 
-  it("引擎标签页只有 2 张卡片（引擎选择、批量翻译），超时输入在引擎卡片内、测试连接按钮上方", async () => {
+  it("引擎标签页只有 2 张卡片（引擎选择、翻译性能），超时输入在引擎卡片内、测试连接按钮上方", async () => {
     await boot(structuredClone(DEFAULT_CONFIG));
     qs<HTMLButtonElement>('[data-tab="engine"]').click();
     await flush();
@@ -175,7 +175,7 @@ describe("通用标签页", () => {
     const cards = document.querySelectorAll(".content > .card");
     expect(cards.length).toBe(2);
     expect(cards[0].querySelector(".card-title")?.textContent).toBe("翻译服务");
-    expect(cards[1].querySelector(".card-title")?.textContent).toBe("批量翻译");
+    expect(cards[1].querySelector(".card-title")?.textContent).toBe("翻译性能");
     expect(cardTitles()).not.toContain("请求超时");
 
     // 超时输入在引擎大卡片内

@@ -27,6 +27,7 @@ import { renderTtsTab } from './tabTts'
 import { renderHotkeysTab } from './tabHotkeys'
 import { BUILTIN_ENGINES, FREE_ENGINE_IDS, engineName, engineDesc } from '../shared/engines'
 import { styleName } from '../shared/uiLabels'
+import { TRANSLATION_CONCURRENCY, BATCH_MAX_TEXTS, normalizeConcurrency } from '../shared/translationLimits'
 
 // ===== 消息封装 =====
 
@@ -84,13 +85,20 @@ function card(title: string, desc?: string): HTMLElement {
 }
 
 /** 标准表单行：左标签 + 右控件 */
-function fieldRow(label: string, control: HTMLElement): HTMLElement {
+function fieldRow(label: string, control: HTMLElement, hint?: string): HTMLElement {
   const row = el('div', 'field')
   const caption = el('span', 'field-label', label)
   caption.id = 'fox-field-' + crypto.randomUUID()
   const input = control.matches('input,select,textarea,button') ? control : control.querySelector('input,select,textarea,button')
   input?.setAttribute('aria-labelledby', caption.id)
-  row.append(caption, control)
+  if (hint) {
+    const copy = el('div', 'field-copy')
+    const description = el('p', 'hint', hint)
+    description.id = caption.id + '-hint'
+    input?.setAttribute('aria-describedby', description.id)
+    copy.append(caption, description)
+    row.append(copy, control)
+  } else row.append(caption, control)
   return row
 }
 
@@ -265,14 +273,20 @@ function buildTextarea(value: string, rows: number, onCommit: (v: string) => voi
 }
 
 /** 数字输入：change 时提交取整后的合法值 */
-function buildNumberInput(value: number, min: number, onCommit: (v: number) => void): HTMLInputElement {
+function buildNumberInput(value: number, min: number, onCommit: (v: number) => void, max = Infinity): HTMLInputElement {
   const input = el('input', 'control control-num')
   input.type = 'number'
   input.min = String(min)
+  if (Number.isFinite(max)) input.max = String(max)
+  input.step = '1'
   input.value = String(value)
   input.addEventListener('change', () => {
     const n = Number(input.value)
-    if (Number.isFinite(n) && n >= min) onCommit(Math.floor(n))
+    if (input.value.trim() && Number.isFinite(n)) {
+      const next = Math.min(max, Math.max(min, Math.floor(n)))
+      input.value = String(next)
+      onCommit(next)
+    } else input.value = String(value)
   })
   return input
 }
@@ -898,20 +912,26 @@ function renderEngine(root: HTMLElement): void {
   if (!adding) detail.append(buildEngineTest(selected.id, selected.id === currentId))
   workspace.append(services, detail)
 
-  const batchCard = card(ot('opt.s23', '批量翻译'), ot('opt.s24', 'LLM 类引擎将多个短句聚合为一次请求，显著降低请求数、提升速度。'))
+  const batchCard = card(ot('opt.translationPerformance', '翻译性能'), ot('opt.concurrencyHint', '建议先使用默认值，再按速度、稳定性和服务商限制调整。同一服务账户在各页面间共享并发上限，调整后应用于后续请求。'))
+  const concurrencyInput = buildNumberInput(normalizeConcurrency(config.batch.concurrency), TRANSLATION_CONCURRENCY.min, (v) => {
+    void patchConfig({ batch: { ...config.batch, concurrency: v } })
+  }, TRANSLATION_CONCURRENCY.max)
+  concurrencyInput.setAttribute('aria-label', ot('opt.translationConcurrency', '并发请求数'))
   batchCard.append(
+    fieldRow(ot('opt.translationConcurrency', '并发请求数'), concurrencyInput,
+      ot('opt.concurrencyGuide', '建议 2～5；默认 3；可设 1～8。免费引擎或遇到限流时建议 1～2，且不要超过服务商的并发上限。')),
     fieldRow(ot('opt.s25', '启用批量翻译'), buildSwitch(config.batch.enabled, ot('opt.s23', '批量翻译'), (v) => {
       void patchConfig({ batch: { ...config.batch, enabled: v } })
-    })),
-    fieldRow(ot('opt.s26', '每批最大条数'), buildNumberInput(config.batch.maxTexts, 1, (v) => {
+    }), ot('opt.batchEnabledGuide', 'AI 引擎建议开启，可合并短句并减少请求；如果批量翻译频繁失败，可尝试关闭。')),
+    fieldRow(ot('opt.s26', '每批最大条数'), buildNumberInput(config.batch.maxTexts, BATCH_MAX_TEXTS.min, (v) => {
       void patchConfig({ batch: { ...config.batch, maxTexts: v } })
-    })),
+    }, BATCH_MAX_TEXTS.max), ot('opt.batchTextsGuide', '建议 4～8 条；默认 8；可设 1～32。调大可减少请求，响应慢或批量结果异常时调小。')),
     fieldRow(ot('opt.s27', '每批最大字符数'), buildNumberInput(config.batch.maxChars, 100, (v) => {
       void patchConfig({ batch: { ...config.batch, maxChars: v } })
-    })),
+    }), ot('opt.batchCharsGuide', '建议 800～2000 字符；默认 1200。调小可缩短单批等待，调大可合并更多文本。')),
     fieldRow(ot('opt.s28', '聚合间隔（毫秒）'), buildNumberInput(config.batch.intervalMs, 10, (v) => {
       void patchConfig({ batch: { ...config.batch, intervalMs: v } })
-    })),
+    }), ot('opt.batchIntervalGuide', '建议 80～200 毫秒；默认 120。调小可更快发起请求，调大更容易合并短句。')),
   )
   root.append(workspace, batchCard)
 }

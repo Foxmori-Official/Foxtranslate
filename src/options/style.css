@@ -182,6 +182,16 @@ body {
   font-size: var(--tv-fs-body);
 }
 
+.field-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-copy > .hint {
+  margin-top: 4px;
+  line-height: 1.6;
+}
+
 .field-static {
   font-size: var(--tv-fs-body);
   font-weight: 500;

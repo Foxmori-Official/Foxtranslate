@@ -8,7 +8,7 @@ export type PageConfig = Pick<Config,
   'contextAware' | 'compareEngines' | 'hotkeys' | 'uiLang' | 'subtitles'
 > & {
   engine: { provider: string; choices: { id: string; name?: string }[] }
-  batch: Pick<Config['batch'], 'enabled' | 'maxTexts'>
+  batch: Pick<Config['batch'], 'enabled' | 'maxTexts' | 'concurrency'>
 }
 
 export function toPageConfig(c: Config): PageConfig {
@@ -22,7 +22,7 @@ export function toPageConfig(c: Config): PageConfig {
     learning: c.learning, floatingBall: c.floatingBall, tts: c.tts, contextAware: c.contextAware,
     compareEngines: c.compareEngines, hotkeys: c.hotkeys, uiLang: c.uiLang, subtitles: c.subtitles,
     engine: { provider: c.engine.provider, choices },
-    batch: { enabled: c.batch.enabled, maxTexts: c.batch.maxTexts },
+    batch: { enabled: c.batch.enabled, maxTexts: c.batch.maxTexts, concurrency: c.batch.concurrency },
   }
 }
 

@@ -10,6 +10,7 @@
  */
 
 import type { Config } from '../shared/config'
+import { normalizeConcurrency } from '../shared/translationLimits'
 import type { AiChatMessage } from '../shared/protocol'
 import { assertHostPermission, parseHttpEndpoint } from '../shared/endpoint'
 import { isAiProvider } from '../shared/engines'
@@ -299,7 +300,7 @@ async function routePrepared(
         intervalMs: config.batch.intervalMs,
         maxTexts: config.batch.maxTexts,
         maxChars: config.batch.maxChars,
-        concurrency: config.batch.concurrency,
+        concurrency: normalizeConcurrency(config.batch.concurrency),
       },
       {
         fallbackSingles: (t, immediate) => request(config, signal => engine.translate(t, from, to, ctx, signal), immediate).then(r => r.text),
@@ -420,7 +421,7 @@ export async function translateTexts(
       let cursor = 0
       let failed = false
       let failure: unknown
-      const concurrency = Math.max(1, Math.min(8, Math.floor(config.batch.concurrency) || 3))
+      const concurrency = normalizeConcurrency(config.batch.concurrency)
       await Promise.all(Array.from({ length: Math.min(concurrency, preparedTexts.length) }, async () => {
         while (!failed && cursor < preparedTexts.length) {
           const index = cursor++

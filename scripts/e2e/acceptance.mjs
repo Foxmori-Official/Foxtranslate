@@ -279,6 +279,22 @@ try {
     await leftRight(options, '.sidebar', '.main')
   }
   await options.setViewportSize({ width: 1440, height: 900 })
+  await options.locator('[data-tab="engine"]').click()
+  const previousBatch = (await config({})).batch
+  for (const [raw, expected] of [['20', 8], ['0', 1], ['5', 5]]) {
+    const input = options.getByRole('spinbutton', { name: '并发请求数', exact: true })
+    assert.equal(await input.getAttribute('min'), '1')
+    assert.equal(await input.getAttribute('max'), '8')
+    const handle = await input.elementHandle()
+    await input.fill(raw)
+    await input.press('Tab')
+    await options.waitForFunction(element => !element.isConnected, handle)
+    assert.equal((await config({})).batch.concurrency, expected)
+    assert.equal(await options.getByRole('spinbutton', { name: '并发请求数', exact: true }).inputValue(), String(expected))
+  }
+  await options.reload()
+  assert.equal(await options.getByRole('spinbutton', { name: '并发请求数', exact: true }).inputValue(), '5')
+  await config({ batch: previousBatch })
   await options.locator('[data-tab="style"]').click()
   const stylePicker = options.getByRole('combobox', { name: '译文样式', exact: true })
   await stylePicker.selectOption('highlight-yellow')
