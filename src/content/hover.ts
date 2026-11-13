@@ -1,6 +1,7 @@
 // 悬停翻译：按住修饰键（或纯悬停）划过段落即译。参考 MTranBrowser 的鼠标悬停快捷键设计。
 import { translateElement } from './page'
 import type { Config } from '../shared/config'
+import { isTrustedInteraction } from '../shared/trustedEvents'
 
 const BLOCK_SELECTOR = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, figcaption, dd, dt'
 
@@ -33,7 +34,7 @@ function findBlock(target: Element | null): Element | null {
 export function initHover(c: Config) {
   config = c
   document.addEventListener('mouseover', (e) => {
-    if (!config?.hover.enabled) return
+    if (!isTrustedInteraction(e) || !config?.hover.enabled) return
     if (!modifierActive(e)) return
     if (throttleTimer) return
     throttleTimer = setTimeout(() => (throttleTimer = null), 120)

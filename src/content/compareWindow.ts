@@ -1,5 +1,5 @@
 // Alt+D 多引擎对比翻译窗：Shadow DOM 隔离的居中浮层。
-// 监听 content/index.ts 派发的 'tv:compare' CustomEvent 开合；
+// 由 content/index.ts 的可信快捷键处理器直接调用；
 // 配置在开窗时经 getConfig 现取（热同步自然生效，无需 index.ts 额外接线）。
 //
 // 样式说明：Shadow DOM 与文档样式互相隔离，public/content.css 里的
@@ -10,6 +10,7 @@
 import { DEFAULT_CONFIG, type Config } from '../shared/config'
 import type { BgResponse } from '../shared/protocol'
 import { ct } from './uiLang'
+import { protectExtensionUi } from '../shared/trustedEvents'
 
 /** 与 background/compare.ts 的 CompareResult 对齐（content 不跨边界 import background 实现） */
 interface CompareResultItem {
@@ -243,6 +244,7 @@ async function openWindow(initialText: string): Promise<void> {
   host.setAttribute('data-tv-owned', '1')
   host.setAttribute('translate', 'no')
   shadow = host.attachShadow({ mode: 'open' })
+  protectExtensionUi(shadow)
 
   const style = document.createElement('style')
   style.textContent = SHADOW_CSS
@@ -306,7 +308,8 @@ async function openWindow(initialText: string): Promise<void> {
       closeWindow()
     } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      runBtn.click()
+      const text = input.value.trim()
+      if (text) runCompare(text)
     }
   })
   runBtn.addEventListener('click', () => {
@@ -323,15 +326,16 @@ async function openWindow(initialText: string): Promise<void> {
   if (initialText) runCompare(initialText)
 }
 
-/** 装配入口：监听 index.ts 派发的 'tv:compare'。已打开时再触发 = 关闭（toggle）。 */
+/** Toggle directly from the trusted shortcut handler, without a page-forgeable DOM bridge. */
+export function toggleCompareWindow(): void {
+  if (host) {
+    closeWindow()
+    return
+  }
+  void openWindow(getSelectionText())
+}
+
 export function initCompareWindow(): void {
-  document.addEventListener('tv:compare', () => {
-    if (host) {
-      closeWindow()
-      return
-    }
-    void openWindow(getSelectionText())
-  })
   // 焦点在页面空白处时的 Esc 兜底关闭（面板内 Esc 已本地处理）
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && host) closeWindow()

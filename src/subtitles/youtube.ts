@@ -133,6 +133,7 @@ async function bootstrap(): Promise<void> {
   document.addEventListener('yt-navigate-start', onNavigateStart)
   window.addEventListener('message', onNativeTimedtext)
   document.addEventListener('keydown', event => {
+    if (!event.isTrusted) return
     if (event.defaultPrevented || event.repeat || event.isComposing || !currentVideoId()) return
     if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return
     if (!matchHotkey(event, hotkey)) return

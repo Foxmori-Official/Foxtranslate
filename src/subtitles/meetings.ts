@@ -429,7 +429,8 @@ class MeetingSession {
     enableBtn.className = 'enable'
     enableBtn.textContent = '点击开启字幕翻译 (Turn on captions)'
     enableBtn.hidden = true
-    enableBtn.addEventListener('click', () => {
+    enableBtn.addEventListener('click', event => {
+      if (!event.isTrusted) return
       // 代用户点一次原生"开启字幕"按钮；字幕流出后提示自动消失
       this.findEnableButton()?.click()
       this.renderPanel()

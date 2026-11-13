@@ -1,5 +1,6 @@
 // 悬浮球：拖拽 + 点击切换整页翻译。支持运行时开关（关闭即移除 DOM 与监听，无需刷新页面）。
 import { ct } from './uiLang'
+import { isTrustedInteraction } from '../shared/trustedEvents'
 export interface BallHooks {
   isActive: () => boolean
   onToggle: () => void
@@ -8,7 +9,7 @@ export interface BallHooks {
 let ball: HTMLElement | null = null
 let hooks: BallHooks | null = null
 let mousemoveHandler: ((e: MouseEvent) => void) | null = null
-let mouseupHandler: (() => void) | null = null
+let mouseupHandler: ((event: MouseEvent) => void) | null = null
 
 export function updateBallState(active: boolean) {
   ball?.classList.toggle('tv-ball-active', active)
@@ -56,6 +57,7 @@ export function toggleFloatingBall(enabled: boolean, h: BallHooks) {
   ball.title = ct('ball.tip', 'Foxtranslate：点击翻译/恢复原文（可拖拽）')
   ball.setAttribute('aria-label', ball.title)
   ball.addEventListener('keydown', event => {
+    if (!isTrustedInteraction(event)) return
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     hooks?.onToggle()
@@ -72,6 +74,7 @@ export function toggleFloatingBall(enabled: boolean, h: BallHooks) {
   let baseTop = 0
 
   ball.addEventListener('mousedown', (e) => {
+    if (!isTrustedInteraction(e) || e.button !== 0) return
     dragging = true
     moved = false
     startX = e.clientX
@@ -82,7 +85,7 @@ export function toggleFloatingBall(enabled: boolean, h: BallHooks) {
     e.preventDefault()
   })
   mousemoveHandler = (e: MouseEvent) => {
-    if (!dragging || !ball) return
+    if (!isTrustedInteraction(e) || !dragging || !ball) return
     const dx = e.clientX - startX
     const dy = e.clientY - startY
     if (!moved && Math.abs(dx) + Math.abs(dy) > 5) moved = true
@@ -95,7 +98,8 @@ export function toggleFloatingBall(enabled: boolean, h: BallHooks) {
       ball.style.bottom = 'auto'
     }
   }
-  mouseupHandler = () => {
+  mouseupHandler = event => {
+    if (!isTrustedInteraction(event)) return
     if (!dragging) return
     dragging = false
     if (!moved) hooks?.onToggle()

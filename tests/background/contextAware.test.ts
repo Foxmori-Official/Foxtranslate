@@ -145,11 +145,9 @@ describe('context 注入 system prompt（AI 引擎）', () => {
   })
 
   it('批路径：translateBatch 收到的 config 同样注入；同上下文聚合成一批', async () => {
-    vi.useFakeTimers()
     const config = makeConfig({ provider: 'openai', batch: true })
     const p1 = translate('hello', { targetLang: 'zh-CN', context: 'Page A' }, config)
     const p2 = translate('world', { targetLang: 'zh-CN', context: 'Page A' }, config)
-    await vi.advanceTimersByTimeAsync(config.batch.intervalMs)
     await Promise.all([p1, p2])
     expect(ENGINES.openai.translateBatch).toHaveBeenCalledTimes(1)
     const batchCtx = vi.mocked(ENGINES.openai.translateBatch!).mock.calls[0][3]
@@ -157,11 +155,9 @@ describe('context 注入 system prompt（AI 引擎）', () => {
   })
 
   it('批路径：不同上下文的 system prompt 不同，队列隔离不混批', async () => {
-    vi.useFakeTimers()
     const config = makeConfig({ provider: 'openai', batch: true })
     const p1 = translate('hello', { targetLang: 'zh-CN', context: 'Page A' }, config)
     const p2 = translate('world', { targetLang: 'zh-CN', context: 'Page B' }, config)
-    await vi.advanceTimersByTimeAsync(config.batch.intervalMs)
     await Promise.all([p1, p2])
     // 两个上下文签名 → 两个队列 → 各发一批
     expect(ENGINES.openai.translateBatch).toHaveBeenCalledTimes(2)

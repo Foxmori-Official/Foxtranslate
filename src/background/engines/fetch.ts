@@ -17,6 +17,10 @@ export function setFetchImpl(fn: FetchLike | null): void {
 }
 
 /** 非 2xx 统一抛错，挂 statusCode 供管线重试分类器快速失败（interline mt.ts 的约定）。 */
-export function httpError(prefix: string, res: Response): Error & { statusCode: number } {
-  return Object.assign(new Error(`${prefix}: HTTP ${res.status} ${res.statusText}`), { statusCode: res.status })
+export function httpError(prefix: string, res: Response): Error & { statusCode: number; retryAfterMs?: number } {
+  const retry = res.headers.get('Retry-After')
+  const seconds = retry === null || retry.trim() === '' ? NaN : Number(retry)
+  const retryAfterMs = retry === null ? undefined : Number.isFinite(seconds)
+    ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(retry) - Date.now())
+  return Object.assign(new Error(`${prefix}: HTTP ${res.status} ${res.statusText}`), { statusCode: res.status, retryAfterMs })
 }

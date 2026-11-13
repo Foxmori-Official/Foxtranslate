@@ -1,5 +1,6 @@
 // YouTube 双语字幕渲染：Shadow DOM 隔离面板 + timeupdate 二分查找 + 广告检测
 import { getSubtitlesConfig, translateText, type SubtitleCue } from './types'
+import { protectExtensionUi } from '../shared/trustedEvents'
 import type { BgResponse } from '../shared/protocol'
 import type { SubtitlePreferences } from '../shared/config'
 import { applyCaptionStyle, CAPTION_LINE_CSS } from '../shared/subtitleSettings'
@@ -80,6 +81,7 @@ export class YouTubeRenderer {
   }
 
   private readonly onWordClick = (e: Event): void => {
+    if (!e.isTrusted) return
     const t = e.target as HTMLElement | null
     if (!t?.classList?.contains('tv-yt-word')) return
     e.stopPropagation()
@@ -106,6 +108,7 @@ export class YouTubeRenderer {
     ].join(';')
 
     const shadow = host.attachShadow({ mode: 'open' })
+    protectExtensionUi(shadow)
     const style = document.createElement('style')
     style.textContent = CAPTION_LINE_CSS + [
       '.tv-panel{position:absolute;left:50%;bottom:max(9%,52px);transform:translateX(-50%);',

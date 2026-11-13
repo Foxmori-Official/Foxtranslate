@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG, type SubtitlePatch, type SubtitlePreferences } from '../shared/config'
+import { protectExtensionUi } from '../shared/trustedEvents'
 import { featureCopy } from '../shared/featureCopy'
 import { uiCopy } from '../shared/interface'
 import { renderSubtitlePreferences, resetSubtitleStyle, SUBTITLE_SETTINGS_CSS } from '../shared/subtitleSettings'
@@ -139,6 +140,7 @@ export class PlayerControl {
     host.setAttribute('translate', 'no')
     host.style.cssText = 'position:absolute;right:12px;bottom:56px;width:min(300px,calc(100% - 24px));max-height:calc(100% - 68px);z-index:70;'
     host.attachShadow({ mode: 'open' })
+    protectExtensionUi(host.shadowRoot!)
     host.hidden = true
     button.setAttribute('aria-controls', host.id)
 
@@ -158,6 +160,7 @@ export class PlayerControl {
     this.listeners = new AbortController()
     const { signal } = this.listeners
     button.addEventListener('click', event => {
+      if (!event.isTrusted) return
       event.stopPropagation()
       if (host.hidden) {
         this.view = 'main'
@@ -171,6 +174,7 @@ export class PlayerControl {
       }
     }, { signal })
     quickOff.addEventListener('click', event => {
+      if (!event.isTrusted) return
       event.stopPropagation()
       this.actions.stopForVideo()
       this.close(true)

@@ -1,5 +1,6 @@
 // 划词翻译：选区气泡（翻译 / AI 解析 / 收藏生词 / 朗读 / 复制）。
 import { DEFAULT_CONFIG, type Config } from '../shared/config'
+import { isTrustedInteraction, protectExtensionUi } from '../shared/trustedEvents'
 import { ct } from './uiLang'
 import { fmt } from '../shared/i18n'
 import type { AiAssistAction, AiChatMessage, BgRequest, BgResponse, TranslateResult } from '../shared/protocol'
@@ -171,6 +172,7 @@ function buildPopup(text: string, rect: DOMRect) {
   const card = document.createElement('div')
   popup = card
   card.className = 'tv-sel-popup'
+  protectExtensionUi(card)
   card.setAttribute('data-tv-owned', '1')
   card.setAttribute('translate', 'no')
   card.setAttribute('role', 'dialog')
@@ -411,17 +413,25 @@ function buildPopup(text: string, rect: DOMRect) {
 export function initSelection(config: Config) {
   currentConfig = config
   let timer: ReturnType<typeof setTimeout> | null = null
-  document.addEventListener('selectionchange', () => {
-    if (!currentConfig?.selection.enabled) return
+  const onSelectionInput = (event: Event) => {
+    if (!isTrustedInteraction(event) || !currentConfig?.selection.enabled) return
+    if (event.target instanceof Element && event.target.closest('[data-tv-owned],input,textarea,select,[contenteditable="true"]')) return
+    const sel = window.getSelection()
+    const text = getSelectionText()
+    if (!sel || sel.rangeCount === 0 || !text) return
+    const selected = sel.getRangeAt(0).cloneRange()
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
       if (!currentConfig?.selection.enabled) return
       if (popup?.contains(document.activeElement) || popup?.matches(':hover')) return
-      const text = getSelectionText()
+      if (getSelectionText() !== text || !selected.startContainer.isConnected) return
       const minLen = 1
       if (text.length < minLen || text.length > currentConfig.selection.maxChars) return
       const sel = window.getSelection()
       if (!sel || sel.rangeCount === 0) return
+      const current = sel.getRangeAt(0)
+      if (current.startContainer !== selected.startContainer || current.startOffset !== selected.startOffset ||
+        current.endContainer !== selected.endContainer || current.endOffset !== selected.endOffset) return
       const node = sel.anchorNode
       if (node instanceof Element && node.closest('[data-tv-owned]')) return
       if (node?.parentElement?.closest('[data-tv-owned]')) return
@@ -429,7 +439,15 @@ export function initSelection(config: Config) {
       if (!rect.width && !rect.height) return
       buildPopup(text, rect)
     }, 220)
-  })
+  }
+  // selectionchange also fires for page scripts. Require a real completed selection gesture.
+  document.addEventListener('pointerup', event => {
+    if (event.button === 0) onSelectionInput(event)
+  }, true)
+  document.addEventListener('keyup', event => {
+    if (['Shift', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key) ||
+      ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a')) onSelectionInput(event)
+  }, true)
   document.addEventListener('mousedown', (e) => {
     if (popup && !popup.contains(e.target as Node)) removePopup()
   })

@@ -44,6 +44,7 @@ src/
     index.ts               # 入口：消息总线、commands、contextMenus
     translate.ts           # translate() 唯一入口管线（见 §6）
     batch.ts               # LLM 聚合翻译队列（BatchQueue）
+    requestPolicy.ts       # 配置隔离标识、服务账户共享并发预算、429 冷却
     cache.ts               # 翻译缓存（内存 LRU + storage 持久）
     engines/
       types.ts             # Engine 接口 + EngineContext
@@ -85,7 +86,8 @@ tests/                     # vitest，core/background 单测
 - 属性：`data-tv-paragraph`（候选单元）、`data-tv-translated="1"`（已译）、`data-tv-id`（撤销用 id）、`data-tv-owned="1"`（扩展 UI）、`data-tv-loading`、`data-tv-error`。
 - 占位符：`{{n}}`（块内行内元素占位，n 从 1 递增）、`__GLOSSARY_N__`（术语）、`__PII_<TYPE>_<N>__`（敏感信息）。
 - CSS 类前缀 `tv-`，颜色等用 CSS 变量 `--tv-*` 便于换肤。
-- 存储键：`tv:config_v1`、`tv:words_v1`、`tv:cache_v1`。
+- 存储键：`tv:config_v1`、`tv:words_v1`、`tv:cache_v1`、`tv:stats_v1`。
+- `tv:stats_v1` 独立保存翻译字数，首次读取从旧配置的 `stats` 迁移；内存累计后每 2 秒合并写入。`getConfig()` 返回合并后的当前统计，统计变化不触发配置广播。
 
 ## 5. Config 契约（shared/config.ts）
 
@@ -113,7 +115,7 @@ export interface Config {
     maxTexts: number;              // 默认 8
     maxChars: number;              // 默认 1200
     intervalMs: number;            // 默认 120
-    concurrency: number;           // 默认 3
+    concurrency: number;           // 默认 3；请求预算按服务账户共享，实际范围 1–8
   };
   style: { styleId: string };      // 默认 'soft-gray'
   selection: { enabled: boolean; mode: 'bilingual' | 'translationOnly'; maxChars: number };
@@ -170,10 +172,14 @@ translate(text, targetLang, sourceLang):
   4. 引擎路由：BYOK 引擎按 config.engine.provider；免费引擎失败链 [google→bing→mymemory]，单个失败
      冷却 60s 沉底重试下一个；BYOK 不进链（配置错误不该被静默掩盖）
   5. LLM 引擎且 batch.enabled 且 supportsBatch → 走 BatchQueue（编号 JSON 协议：system 要求输出
-     {"translations":[{"id":1,"text":"..."}]}，解析后按 id 对齐，缺条回退单发）
+     {"translations":[{"id":1,"text":"..."}]}，解析后按 id 对齐；仅批格式错误回退单发）
   6. restore glossary → restore PII（容错正则，占位符文本即 key）
-  7. 写缓存（key 含 provider/langpair/textHash/promptSig/glossarySig），stats.translatedChars += len
+  7. 写缓存（key 含 provider/配置 SHA-256/langpair/textHash/promptSig/glossarySig），独立累计翻译字数
 ```
+
+请求调度覆盖批量、单条、失败回退和 AI 辅助。同一服务源与凭证共享并发预算，模型、语言对和字幕 scope 不增加额外槽位；当前字幕任务优先于尚未发出的普通请求。HTTP 错误不触发整批拆分重试，429 暂停同账户队列（Retry-After 上限 5 分钟，缺省 1 秒）。每账户最多等待 256 个请求，后台最多同时跟踪 64 个活动账户。
+
+队列配置标识包含引擎端点、凭证、模型、专家提示词和批参数；配置变化后新任务使用新闭包，已经接受的旧任务按原配置结束。持久化缓存仅保存配置摘要，不保存原始凭证。网页交互入口验证可信输入；扩展控件中的 change/input 还要求对应的真实指针或键盘操作，防止合成 click 的默认动作绕过事件检查。
 
 LLM system prompt 四要素：translator 角色、目标语言**全名**（langs.ts NAME 表）、只输出译文、
 检测到 `__PII_` 时追加占位符保护句。temperature 0.1。

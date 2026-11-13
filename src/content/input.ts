@@ -7,6 +7,7 @@
 import type { Config } from '../shared/config'
 import type { BgResponse, TranslateResult } from '../shared/protocol'
 import { ct } from './uiLang'
+import { isTrustedInteraction } from '../shared/trustedEvents'
 
 let config: Config | null = null
 let lastKeyTime = 0
@@ -172,9 +173,10 @@ export function initInput(c: Config) {
   // 幂等：重复初始化先移除旧监听，避免重复触发
   if (keydownHandler) document.removeEventListener('keydown', keydownHandler)
   keydownHandler = (e: KeyboardEvent) => {
-    if (!config?.input.enabled) return
+    if (!isTrustedInteraction(e) || !config?.input.enabled) return
     const el = isEditable(e.target)
     if (!el) return
+    if (!document.activeElement?.contains(el) || !el.getClientRects().length) return
     const trigger = config.input.trigger
 
     if (trigger === 'altEnter') {

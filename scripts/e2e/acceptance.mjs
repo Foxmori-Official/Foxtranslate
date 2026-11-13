@@ -4,10 +4,11 @@ import { createServer } from 'node:http'
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
+import { chooseTrustedOption, selectParagraph } from './helpers.mjs'
 
 const profile = await mkdtemp(join(tmpdir(), 'foxtranslate-browser-'))
 const screenshots = process.env.FOXTRANSLATE_SCREENSHOTS
-const extension = resolve('dist')
+const extension = resolve(process.env.FOXTRANSLATE_EXTENSION_DIR || 'dist')
 const fixture = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.setHeader('Content-Security-Policy', "img-src 'self'")
@@ -174,10 +175,7 @@ try {
   await content.locator('input[type="password"]').press('Alt+Enter')
   assert.equal(await content.locator('.tv-input-tip').count(), 0)
   assert.equal(await content.locator('input[type="password"]').inputValue(), 'fixture-only')
-  await content.evaluate(() => {
-    document.activeElement.blur()
-    getSelection().selectAllChildren(document.getElementById('paragraph'))
-  })
+  await selectParagraph(content)
   const bubble = content.locator('.tv-sel-popup')
   await bubble.getByRole('button', { name: '朗读', exact: true }).waitFor()
   assert.equal(await bubble.locator('.tv-sel-icon').count(), 3)
@@ -192,9 +190,9 @@ try {
   await selectionTarget.focus()
   await selectionTarget.press('Tab')
   assert.ok(await bubble.getByRole('button', { name: '关闭', exact: true }).evaluate(node => node === document.activeElement))
-  await selectionTarget.selectOption('ja')
+  await chooseTrustedOption(selectionTarget, 'ja')
   await selectionResult.filter({ hasText: 'Google · ja · This paragraph' }).waitFor()
-  await selectionEngine.selectOption('mymemory')
+  await chooseTrustedOption(selectionEngine, 'mymemory')
   await selectionResult.filter({ hasText: 'MyMemory · en|ja · This paragraph' }).waitFor()
   const readingViewport = content.viewportSize()
   await content.setViewportSize({ width: 320, height: 360 })
@@ -207,9 +205,9 @@ try {
   })
   await capture(content, 'foxtranslate-selection-controls')
   await content.setViewportSize(readingViewport)
-  await selectionTarget.selectOption('fr')
+  await chooseTrustedOption(selectionTarget, 'fr')
   await selectionResult.filter({ hasText: '翻译失败：mymemory: HTTP 503' }).waitFor()
-  await selectionEngine.selectOption('')
+  await chooseTrustedOption(selectionEngine, '')
   await selectionResult.filter({ hasText: 'Google · fr · This paragraph' }).waitFor()
   const readingDefaults = await config({})
   assert.equal(readingDefaults.engine.provider, 'google')
@@ -476,13 +474,10 @@ try {
     }],
   } })
   await content.bringToFront()
-  await content.evaluate(() => {
-    getSelection().removeAllRanges()
-    getSelection().selectAllChildren(document.getElementById('paragraph'))
-  })
-  await selectionEngine.selectOption('foxmori')
+  await selectParagraph(content)
+  await chooseTrustedOption(selectionEngine, 'foxmori')
   await selectionResult.filter({ hasText: /^你好 · Foxmori 测试$/ }).waitFor()
-  await selectionEngine.selectOption('custom:selection-fixture')
+  await chooseTrustedOption(selectionEngine, 'custom:selection-fixture')
   await selectionResult.filter({ hasText: /^你好 · Foxmori 测试$/ }).waitFor()
   assert.equal((await config({})).engine.provider, 'google')
   await bubble.getByRole('button', { name: '关闭', exact: true }).click()
@@ -491,10 +486,7 @@ try {
   await provider.locator('[data-engine-id="foxmori"] .engine-current').waitFor()
   assert.equal((await config({})).engine.provider, 'foxmori')
   await content.bringToFront()
-  await content.evaluate(() => {
-    getSelection().removeAllRanges()
-    getSelection().selectAllChildren(document.getElementById('paragraph'))
-  })
+  await selectParagraph(content)
   await bubble.getByRole('button', { name: 'AI 解析', exact: true }).click()
   const analysis = bubble.locator('.tv-sel-ai')
   const initialAnalysis = Array(4).fill('你好 · Foxmori 测试').join('\n\n')
@@ -702,11 +694,11 @@ try {
   await openMenu()
   await capture(video, 'foxtranslate-youtube-menu')
   await menu.getByRole('button', { name: '全局字幕设置', exact: true }).click()
-  await menu.getByRole('combobox', { name: '译文位置' }).selectOption('above')
+  await chooseTrustedOption(menu.getByRole('combobox', { name: '译文位置' }), 'above')
   await overlay.locator('.tv-panel[data-position="above"]').waitFor()
-  await menu.getByRole('combobox', { name: '字幕显示类型' }).selectOption('translationOnly')
+  await chooseTrustedOption(menu.getByRole('combobox', { name: '字幕显示类型' }), 'translationOnly')
   await overlay.locator('.tv-orig').waitFor({ state: 'hidden' })
-  await menu.getByRole('combobox', { name: '字幕显示类型' }).selectOption('bilingual')
+  await chooseTrustedOption(menu.getByRole('combobox', { name: '字幕显示类型' }), 'bilingual')
   await overlay.locator('.tv-orig').waitFor({ state: 'visible' })
   await menu.getByRole('button', { name: '字幕样式', exact: true }).click()
   const opacity = menu.getByRole('slider', { name: '背景不透明度' })

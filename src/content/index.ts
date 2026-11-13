@@ -6,7 +6,8 @@ import { initSelection, setSelectionConfig } from './selection'
 import { initHover, setHoverConfig } from './hover'
 import { initInput, setInputConfig } from './input'
 import { toggleFloatingBall, updateBallState } from './floatingBall'
-import { initCompareWindow } from './compareWindow'
+import { initCompareWindow, toggleCompareWindow } from './compareWindow'
+import { isTrustedInteraction } from '../shared/trustedEvents'
 import { applyHighlights } from './highlight'
 import { detectPageLang } from '../core/detect'
 import { DEFAULT_CONFIG, normalizeConfig, type Config } from '../shared/config'
@@ -53,6 +54,7 @@ async function main() {
 }
 
 function applyConfig(config: Config, first = false) {
+  const previous = currentConfig
   currentConfig = config
   setContentUiLang(config)
   setSelectionConfig(config)
@@ -70,7 +72,9 @@ function applyConfig(config: Config, first = false) {
     isActive: () => pageTranslator.isActive(),
     onToggle: () => void togglePageTranslation(),
   })
-  if (config.learning.enabled && config.learning.highlightOnPage) void applyHighlights(true)
+  if (first || previous.learning.enabled !== config.learning.enabled || previous.learning.highlightOnPage !== config.learning.highlightOnPage) {
+    void applyHighlights(config.learning.enabled && config.learning.highlightOnPage)
+  }
 }
 
 async function maybeAutoTranslate() {
@@ -96,6 +100,7 @@ async function maybeAutoTranslate() {
 // 快捷键：按 config.hotkeys 解析匹配（与 manifest command 双保险）。
 // 处理器每次按键时读 currentConfig.hotkeys，configChanged 热同步后新配置即时生效。
 document.addEventListener('keydown', (e) => {
+  if (!isTrustedInteraction(e)) return
   const hk = currentConfig.hotkeys ?? DEFAULT_CONFIG.hotkeys
   if (matchHotkey(e, hk.togglePage)) {
     e.preventDefault()
@@ -105,7 +110,7 @@ document.addEventListener('keydown', (e) => {
   if (matchHotkey(e, hk.compare)) {
     e.preventDefault()
     // 对比窗由后续模块监听该事件
-    document.dispatchEvent(new CustomEvent('tv:compare'))
+    toggleCompareWindow()
     return
   }
   if (matchHotkey(e, hk.openOptions)) {
@@ -117,8 +122,9 @@ document.addEventListener('keydown', (e) => {
 
 // 配置热同步
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes['tv:config_v1']) return
-  applyConfig(normalizeConfig(changes['tv:config_v1'].newValue))
+  if (area !== 'local') return
+  if (changes['tv:config_v1']) applyConfig(normalizeConfig(changes['tv:config_v1'].newValue))
+  if (changes['tv:words_v1'] && currentConfig.learning.enabled && currentConfig.learning.highlightOnPage) void applyHighlights(true)
 })
 
 // 消息：popup / background 命令

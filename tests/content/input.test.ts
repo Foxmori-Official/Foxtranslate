@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { smartReplaceText, initInput } from '../../src/content/input'
 import type { Config } from '../../src/shared/config'
+import * as trusted from '../../src/shared/trustedEvents'
 
 // ---------- jsdom 缺失 API polyfill（仅在本文件全局环境缺省时注入） ----------
 class TestDataTransfer {
@@ -238,10 +239,16 @@ describe('smartReplaceText：input/textarea', () => {
 
 // ---------- 触发链路与提示条 ----------
 describe('触发与提示（Alt+Enter / 三连空格）', () => {
+  beforeEach(() => {
+    // Unit-test replacement/error handling after the trusted-input precondition.
+    vi.spyOn(trusted, 'isTrustedInteraction').mockReturnValue(true)
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+  })
   it('Alt+Enter 触发翻译并写回，成功提示', async () => {
     const input = makeInput('hello')
     const sendMessage = mockChromeSendMessage(async () => ({ ok: true, data: { text: '你好' } }))
     initInput(makeConfig('altEnter'))
+    input.focus()
 
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', altKey: true, bubbles: true, cancelable: true }))
 
@@ -259,6 +266,7 @@ describe('触发与提示（Alt+Enter / 三连空格）', () => {
     const input = makeInput('hello')
     mockChromeSendMessage(async () => ({ ok: false, error: '引擎超时' }))
     initInput(makeConfig('altEnter'))
+    input.focus()
 
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', altKey: true, bubbles: true, cancelable: true }))
 
@@ -272,6 +280,7 @@ describe('触发与提示（Alt+Enter / 三连空格）', () => {
     const input = makeInput('hello')
     const sendMessage = mockChromeSendMessage(async () => ({ ok: true, data: { text: '你好' } }))
     initInput(makeConfig('tripleSpace'))
+    input.focus()
 
     // 先敲一个普通键重置模块内计数，再三连空格
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))

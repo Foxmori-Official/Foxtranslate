@@ -26,10 +26,11 @@ import { langName } from '../core/langs'
 import { BUILTIN_EXPERTS } from '../core/experts'
 import { ENGINES, FREE_CHAIN, resolveEngine, FOXMORI_ENDPOINT } from './engines'
 import type { Engine, EngineContext, EngineResult } from './engines'
-import { getFetch } from './engines/fetch'
+import { getFetch, httpError } from './engines/fetch'
 import { cacheKey, get as cacheGet, set as cacheSet } from './cache'
 import { getBatchQueue } from './batch'
 import { resolveEffectiveGlossary } from './glossaryLibs'
+import { BatchFormatError, scheduleRequest, translationIdentity } from './requestPolicy'
 
 export interface TranslateOptions {
   bypassCache?: boolean
@@ -144,9 +145,9 @@ function effectiveContext(opts: TranslateOptions, providerId: string): string | 
 
 /**
  * 缓存 key：promptSig = 有效术语签名；有页面上下文时追加 `ctx:textHash(context)`，
- * 不同页面（上下文不同）的同文翻译不串缓存；无上下文时 key 与旧版完全一致。
+ * 不同页面（上下文不同）的同文翻译不串缓存；可配置引擎额外包含配置摘要。
  */
-function keyFor(
+async function keyFor(
   config: Config,
   from: string,
   to: string,
@@ -154,10 +155,10 @@ function keyFor(
   terms: GlossaryTerm[],
   context?: string,
   exactProvider = false,
-): string {
+): Promise<string> {
   const sig = context ? `${sigOf(terms)}|ctx:${textHash(context)}` : sigOf(terms)
-  const { provider, foxmori } = config.engine
-  let engine = provider === 'foxmori' ? `foxmori:${encodeURIComponent(foxmori.model.trim())}` : provider
+  const { provider } = config.engine
+  let engine = FREE_CHAIN.includes(provider) ? provider : `${provider}:cfg3:${await translationIdentity(config)}`
   // The default free chain may have cached a translation from a different engine.
   if (exactProvider && FREE_CHAIN.includes(provider)) engine = `exact:${engine}`
   return cacheKey({ engine, from, to, text, promptSig: sig })
@@ -172,6 +173,11 @@ function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number): Pr
   return fn(controller.signal).finally(() => clearTimeout(timer))
 }
 
+function request<T>(config: Config, fn: (signal: AbortSignal) => Promise<T>, priority = false): Promise<T> {
+  // Timeout begins after a slot is acquired, rather than expiring while waiting behind other requests.
+  return scheduleRequest(config, () => withTimeout(fn, config.engine.timeoutMs), priority)
+}
+
 /** 免费链：配置引擎优先，失败冷却 60s 沉底，依次尝试 FREE_CHAIN 其余。 */
 async function translateFreeChain(
   text: string,
@@ -179,6 +185,7 @@ async function translateFreeChain(
   to: string,
   config: Config,
   preferred: Engine,
+  immediate = false,
 ): Promise<EngineResult> {
   const order = [preferred.id, ...FREE_CHAIN.filter((id) => id !== preferred.id)]
   const errors: string[] = []
@@ -186,9 +193,10 @@ async function translateFreeChain(
   for (const id of order) {
     if (isCooling(id, now)) continue
     try {
-      return await withTimeout(
+      return await request(
+        { ...config, engine: { ...config.engine, provider: id } },
         (signal) => ENGINES[id].translate(text, from, to, { config }, signal),
-        config.engine.timeoutMs,
+        immediate,
       )
     } catch (err) {
       cooldowns.set(id, Date.now() + COOLDOWN_MS)
@@ -267,10 +275,10 @@ async function routePrepared(
   const ctx: EngineContext = { config }
   const engine = resolveEngine(config.engine.provider, ctx)
   if (engine.kind === 'free' && options.exactProvider) {
-    return withTimeout(signal => engine.translate(prepared, from, to, ctx, signal), config.engine.timeoutMs)
+    return request(config, signal => engine.translate(prepared, from, to, ctx, signal), options.immediate)
   }
   if (engine.kind === 'free') {
-    return translateFreeChain(prepared, from, to, config, engine)
+    return translateFreeChain(prepared, from, to, config, engine, options.immediate)
   }
   await assertEndpointPermission(config)
   if (engine.supportsBatch && config.batch.enabled) {
@@ -281,7 +289,7 @@ async function routePrepared(
       (ctxSig ? `|${textHash(ctxSig)}` : '')
     const queue = getBatchQueue(
       queueKey,
-      (texts) => withTimeout((signal) => engine.translateBatch!(texts, from, to, ctx, signal), config.engine.timeoutMs),
+      (texts, immediate) => request(config, signal => engine.translateBatch!(texts, from, to, ctx, signal), immediate),
       {
         intervalMs: config.batch.intervalMs,
         maxTexts: config.batch.maxTexts,
@@ -289,15 +297,14 @@ async function routePrepared(
         concurrency: config.batch.concurrency,
       },
       {
-        fallbackSingles: (t) => withTimeout(signal => engine.translate(t, from, to, ctx, signal), config.engine.timeoutMs).then((r) => r.text),
-        // In memory only. Rotate the queue when a different account key or model is selected.
-        configuration: engine.id === 'foxmori' ? JSON.stringify([config.engine.keys.foxmori, config.engine.foxmori.model]) : undefined,
+        fallbackSingles: (t, immediate) => request(config, signal => engine.translate(t, from, to, ctx, signal), immediate).then(r => r.text),
+        configuration: `${await translationIdentity(config)}|${config.engine.timeoutMs}|${JSON.stringify(config.batch)}`,
       },
     )
     const text = await queue.addTask(prepared, options.immediate)
     return { text }
   }
-  return withTimeout((signal) => engine.translate(prepared, from, to, ctx, signal), config.engine.timeoutMs)
+  return request(config, signal => engine.translate(prepared, from, to, ctx, signal), options.immediate)
 }
 
 // ── 对外入口 ────────────────────────────────────────────────────────────────
@@ -315,7 +322,7 @@ export async function translate(
   const to = opts.targetLang
   const terms = await resolveEffectiveGlossary(config)
   const context = effectiveContext(opts, config.engine.provider)
-  const key = keyFor(config, from, to, text, terms, context, opts.exactProvider)
+  const key = await keyFor(config, from, to, text, terms, context, opts.exactProvider)
   const cached = await cacheGet(key)
   if (!opts.bypassCache && cached !== undefined) return { text: cached }
 
@@ -344,7 +351,7 @@ export async function translateTexts(
   const pendingIdx: number[] = []
 
   for (let i = 0; i < texts.length; i++) {
-    const key = keyFor(config, from, to, texts[i], terms, context)
+    const key = await keyFor(config, from, to, texts[i], terms, context)
     const cached = await cacheGet(key)
     if (cached !== undefined) {
       results[i] = cached
@@ -357,19 +364,32 @@ export async function translateTexts(
 
   const writeBack = async (i: number, restored: string): Promise<void> => {
     results[i] = restored
-    await cacheSet(keyFor(config, from, to, texts[i], terms, context), restored)
+    await cacheSet(await keyFor(config, from, to, texts[i], terms, context), restored)
   }
 
   if (engine.supportsBatch && config.batch.enabled) {
+    await assertEndpointPermission(effConfig)
     const preparedTexts = pendingIdx.map((i) => (preps[i] as Prepared).text)
     let outs: string[]
     try {
-      outs = await withTimeout(signal => engine.translateBatch!(preparedTexts, from, to, { config: effConfig }, signal), config.engine.timeoutMs)
-    } catch {
-      // 整批失败 → 逐条单发兜底
-      outs = await Promise.all(
-        preparedTexts.map((t) => withTimeout(signal => engine.translate(t, from, to, { config: effConfig }, signal), config.engine.timeoutMs).then((r) => r.text)),
-      )
+      outs = await request(effConfig, signal => engine.translateBatch!(preparedTexts, from, to, { config: effConfig }, signal))
+    } catch (error) {
+      if (!(error instanceof BatchFormatError)) throw error
+      // Only malformed successful batch responses may fall back; all singles share actual network slots.
+      outs = new Array<string>(preparedTexts.length)
+      let cursor = 0
+      let failed = false
+      let failure: unknown
+      const concurrency = Math.max(1, Math.min(8, Math.floor(config.batch.concurrency) || 3))
+      await Promise.all(Array.from({ length: Math.min(concurrency, preparedTexts.length) }, async () => {
+        while (!failed && cursor < preparedTexts.length) {
+          const index = cursor++
+          try {
+            outs[index] = (await request(effConfig, signal => engine.translate(preparedTexts[index], from, to, { config: effConfig }, signal))).text
+          } catch (error) { failed = true; failure = error }
+        }
+      }))
+      if (failed) throw failure
     }
     for (let k = 0; k < pendingIdx.length; k++) {
       const i = pendingIdx[k]
@@ -395,7 +415,8 @@ export async function translateTexts(
  */
 export async function detectLang(text: string, config: Config): Promise<string | undefined> {
   try {
-    const res = await ENGINES.google.translate(text, 'auto', config.general.targetLang, { config })
+    const googleConfig = { ...config, engine: { ...config.engine, provider: 'google' } }
+    const res = await request(googleConfig, signal => ENGINES.google.translate(text, 'auto', config.general.targetLang, { config: googleConfig }, signal))
     if (res.detectedLang) return res.detectedLang
   } catch {
     // 网络失败 → 本地推断
@@ -495,7 +516,8 @@ async function postChatCompletion(
   logPrefix: string,
 ): Promise<string> {
   const { base, model, apiKey } = resolveAiEndpoint(config)
-  return withTimeout(async signal => {
+  await assertEndpointPermission(config)
+  return request(config, async signal => {
     const res = await getFetch()(`${base}/chat/completions`, {
       method: 'POST',
       signal,
@@ -505,7 +527,7 @@ async function postChatCompletion(
       },
       body: JSON.stringify({ model, temperature, stream: false, messages }),
     })
-    if (!res.ok) throw new Error(`${logPrefix}: HTTP ${res.status}`)
+    if (!res.ok) throw httpError(logPrefix, res)
     const data = (await res.json()) as {
       choices?: Array<{ message?: { content?: unknown } }>
       error?: { message?: string }
@@ -514,7 +536,7 @@ async function postChatCompletion(
     const content = data.choices?.[0]?.message?.content
     if (typeof content !== 'string') throw new Error(`${logPrefix}: unexpected response shape`)
     return content.trim()
-  }, config.engine.timeoutMs)
+  }, true)
 }
 
 /**

@@ -2,6 +2,7 @@
 import type { BgResponse, WordItem } from '../shared/protocol'
 
 let tip: HTMLElement | null = null
+let revision = 0
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -50,10 +51,13 @@ function hideTip() {
 }
 
 export async function applyHighlights(enabled: boolean) {
+  const request = ++revision
   removeHighlights()
   if (!enabled) return
-  const resp = (await chrome.runtime.sendMessage({ kind: 'getWords' })) as BgResponse<WordItem[]>
-  if (!resp.ok) return
+  let resp: BgResponse<WordItem[]>
+  try { resp = await chrome.runtime.sendMessage({ kind: 'getWords' }) }
+  catch { return }
+  if (!resp.ok || request !== revision) return
   const words = resp.data.filter((w) => w.word.trim().length >= 2)
   const re = buildMatcher(words)
   if (!re) return

@@ -3,14 +3,19 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { initSelection } from '../../src/content/selection'
 import { DEFAULT_CONFIG } from '../../src/shared/config'
 import type { BgRequest, BgResponse, TranslateResult } from '../../src/shared/protocol'
+import * as trusted from '../../src/shared/trustedEvents'
 
 afterEach(() => {
   document.body.replaceChildren()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 it('keeps the latest translation when a previous request finishes later', async () => {
+  // jsdom cannot create trusted input. Browser regression tests exercise the actual security boundary.
+  vi.spyOn(trusted, 'isTrustedInteraction').mockReturnValue(true)
+  vi.spyOn(trusted, 'protectExtensionUi').mockImplementation(() => {})
   vi.useFakeTimers()
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -30,10 +35,10 @@ it('keeps the latest translation when a previous request finishes later', async 
   document.body.append(paragraph)
   const range = document.createRange()
   range.selectNodeContents(paragraph)
-  range.getBoundingClientRect = () => new DOMRect(40, 40, 60, 20)
+  Range.prototype.getBoundingClientRect = () => new DOMRect(40, 40, 60, 20)
   initSelection(structuredClone(DEFAULT_CONFIG))
   window.getSelection()!.addRange(range)
-  document.dispatchEvent(new Event('selectionchange'))
+  paragraph.dispatchEvent(new MouseEvent('pointerup', { button: 0, bubbles: true }))
   await vi.advanceTimersByTimeAsync(220)
 
   const target = document.querySelector<HTMLSelectElement>('.tv-sel-target')!

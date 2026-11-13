@@ -5,6 +5,7 @@ import { glossaryPromptBlock } from '../../core/glossary'
 import { getExpert, renderExpertPrompt } from '../../core/experts'
 import type { Engine, EngineContext, EngineResult } from './types'
 import { getFetch, httpError } from './fetch'
+import { BatchFormatError } from '../requestPolicy'
 
 export interface OpenAICompatOpts {
   id: string
@@ -90,10 +91,10 @@ export function parseBatchResponse(content: string, originals: string[]): string
   try {
     parsed = JSON.parse(jsonStr)
   } catch (e) {
-    throw new Error(`openai-compat batch: response is not valid JSON: ${(e as Error).message}`)
+    throw new BatchFormatError(`openai-compat batch: response is not valid JSON: ${(e as Error).message}`)
   }
-  const items = (parsed as { translations?: unknown }).translations
-  if (!Array.isArray(items)) throw new Error('openai-compat batch: missing "translations" array')
+  const items = (parsed as { translations?: unknown } | null)?.translations
+  if (!Array.isArray(items)) throw new BatchFormatError('openai-compat batch: missing "translations" array')
   const out: string[] = originals.slice()
   for (const item of items) {
     if (typeof item !== 'object' || item === null) continue

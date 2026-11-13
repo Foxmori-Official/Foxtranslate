@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG, type Config } from '../../src/shared/config'
 import { ENGINES } from '../../src/background/engines'
 import { getBatchQueue, resetBatchQueues } from '../../src/background/batch'
 import { detectLang, translate, translateTexts, resetCooldowns } from '../../src/background/translate'
+import { BatchFormatError, translationIdentity } from '../../src/background/requestPolicy'
 
 // ---------- mock：engines 注册表 + 缓存 ----------
 
@@ -188,7 +189,7 @@ describe('免费链', () => {
 describe('缓存', () => {
   it('命中直接返回，不请求引擎', async () => {
     const config = makeConfig({ provider: 'deepl' })
-    cacheStore.set('k|deepl|hello', '缓存译文')
+    cacheStore.set(`k|deepl:cfg3:${await translationIdentity(config)}|hello`, '缓存译文')
     const r = await translate('hello', { targetLang: 'zh-CN' }, config)
     expect(r.text).toBe('缓存译文')
     expect(ENGINES.deepl.translate).not.toHaveBeenCalled()
@@ -198,7 +199,7 @@ describe('缓存', () => {
     const config = makeConfig({ provider: 'deepl' })
     const r = await translate('new text', { targetLang: 'zh-CN' }, config)
     expect(r.text).toBe('[deepl]new text')
-    expect(cacheStore.get('k|deepl|new text')).toBe('[deepl]new text')
+    expect(cacheStore.get(`k|deepl:cfg3:${await translationIdentity(config)}|new text`)).toBe('[deepl]new text')
   })
 })
 
@@ -206,10 +207,8 @@ describe('缓存', () => {
 
 describe('批聚合', () => {
   it('translate 单条在批开启时走 BatchQueue（节流窗口后聚合发出）', async () => {
-    vi.useFakeTimers()
     const config = makeConfig({ provider: 'openai', batch: true })
     const p = translate('hello', { targetLang: 'zh-CN' }, config)
-    await vi.advanceTimersByTimeAsync(config.batch.intervalMs)
     const r = await p
     expect(ENGINES.openai.translateBatch).toHaveBeenCalledTimes(1)
     expect(vi.mocked(ENGINES.openai.translateBatch!).mock.calls[0][0]).toEqual(['hello'])
@@ -237,7 +236,7 @@ describe('批聚合', () => {
     ])
     expect(out).toEqual(['译文0 变压器', '译文1 变压器'])
     // 逐条写缓存
-    expect(cacheStore.get('k|openai|hello Transformer')).toBe('译文0 变压器')
+    expect(cacheStore.get(`k|openai:cfg3:${await translationIdentity(config)}|hello Transformer`)).toBe('译文0 变压器')
   })
 
   it('translateTexts：批失败回退逐条单发，仍逐条还原', async () => {
@@ -246,7 +245,7 @@ describe('批聚合', () => {
       batch: true,
       glossary: [{ src: 'Transformer', dst: '变压器' }],
     })
-    vi.mocked(ENGINES.openai.translateBatch!).mockRejectedValue(new Error('batch exploded'))
+    vi.mocked(ENGINES.openai.translateBatch!).mockRejectedValue(new BatchFormatError('batch exploded'))
     vi.mocked(ENGINES.openai.translate).mockImplementation(async (t: string) => ({
       text: `单发:${t}`,
     }))
@@ -314,18 +313,16 @@ describe('connection checks', () => {
 
 describe('当前字幕的优先调度', () => {
   it('当前句立即发出，后续字幕继续在时间窗中聚合', async () => {
-    vi.useFakeTimers()
     const config = makeConfig({ provider: 'openai', batch: true })
     const future = translate('future caption', { targetLang: 'zh-CN' }, config)
     const current = await translate('current caption', { targetLang: 'zh-CN', immediate: true }, config)
     expect(current.text).toBe('[openai:batch]current caption')
     expect(vi.mocked(ENGINES.openai.translateBatch!).mock.calls.map(call => call[0])).toEqual([['current caption']])
-    await vi.advanceTimersByTimeAsync(config.batch.intervalMs)
     await future
     expect(vi.mocked(ENGINES.openai.translateBatch!).mock.calls[1][0]).toEqual(['future caption'])
   })
 
-  it('网页翻译占满队列时，当前视频字幕仍能提交', async () => {
+  it('网页翻译占满服务预算时，视频字幕等待同一个并发槽', async () => {
     const config = makeConfig({ provider: 'openai', batch: true })
     config.batch.concurrency = 1
     config.batch.maxTexts = 1
@@ -335,14 +332,12 @@ describe('当前字幕的优先调度', () => {
     const page = translate('page paragraph', { targetLang: 'zh-CN' }, config)
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
 
-    try {
-      const cue = translate('current caption', { targetLang: 'zh-CN', immediate: true, scope: 'youtube' }, config)
-      await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
-      expect((await cue).text).toBe('[openai:batch]current caption')
-    } finally {
-      releasePageBatch(['translated paragraph'])
-      await page
-    }
+    const cue = translate('current caption', { targetLang: 'zh-CN', immediate: true, scope: 'youtube' }, config)
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(send).toHaveBeenCalledTimes(1)
+    releasePageBatch(['translated paragraph'])
+    expect((await cue).text).toBe('[openai:batch]current caption')
+    await page
   })
 
   it('当前句优先于尚未发送的预取，沿用相同的并发上限', async () => {
@@ -360,15 +355,13 @@ describe('当前字幕的优先调度', () => {
   })
 
   it('批量失败后的单发重试也有超时', async () => {
-    vi.useFakeTimers()
     const config = makeConfig({ provider: 'openai', batch: true })
     config.engine.timeoutMs = 20
-    vi.mocked(ENGINES.openai.translateBatch!).mockRejectedValue(new Error('batch failed'))
+    vi.mocked(ENGINES.openai.translateBatch!).mockRejectedValue(new BatchFormatError('batch failed'))
     vi.mocked(ENGINES.openai.translate).mockImplementation((_text, _from, _to, _ctx, signal) => new Promise((_resolve, reject) => {
       signal?.addEventListener('abort', () => reject(new Error('request timed out')), { once: true })
     }))
     const request = expect(translateTexts(['caption'], { targetLang: 'zh-CN' }, config)).rejects.toThrow('request timed out')
-    await vi.advanceTimersByTimeAsync(21)
     await request
   })
 })

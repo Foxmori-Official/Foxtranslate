@@ -6,10 +6,11 @@
  * 单条自身超 maxChars 时独占一批。同 key 并发槽（concurrency）限制在飞的批数，
  * 超出的批排队等待空槽。
  *
- * 一批失败时逐条 fallback：优先用调用方提供的 fallbackSingles(text)（管线层传入
- * 逐条 engine.translate），缺省时用 taskFn([t]) 单条重试；仍失败的条目单独 reject，
- * 不拖垮同批其它条目。
+ * 仅响应批格式错误时顺序 fallback；HTTP/网络错误直接失败。每次 fallback 也经过
+ * 管线的服务账户请求预算，避免把限流错误放大为更多请求。
  */
+
+import { BatchFormatError } from './requestPolicy'
 
 export interface BatchQueueOptions {
   intervalMs: number
@@ -20,7 +21,7 @@ export interface BatchQueueOptions {
 
 export interface BatchQueueExtra {
   /** 批失败后的逐条兜底（管线层传 engine.translate 单发）。 */
-  fallbackSingles?: (text: string) => Promise<string>
+  fallbackSingles?: (text: string, immediate?: boolean) => Promise<string>
   /** If the provider configuration changed, new requests must use a fresh dispatch closure. */
   configuration?: string
 }
@@ -40,10 +41,10 @@ class KeyBatchQueue implements BatchQueue {
   private pendingChars = 0
   private timer: ReturnType<typeof setTimeout> | null = null
   private inFlight = 0
-  private waiting: PendingTask[][] = []
+  private waiting: Array<{ tasks: PendingTask[]; immediate: boolean }> = []
 
   constructor(
-    private readonly taskFn: (texts: string[]) => Promise<string[]>,
+    private readonly taskFn: (texts: string[], immediate?: boolean) => Promise<string[]>,
     private readonly opts: BatchQueueOptions,
     private readonly extra: BatchQueueExtra = {},
   ) {}
@@ -51,7 +52,7 @@ class KeyBatchQueue implements BatchQueue {
   addTask(text: string, immediate = false): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       if (immediate) {
-        this.waiting.unshift([{ text, resolve, reject }])
+        this.waiting.unshift({ tasks: [{ text, resolve, reject }], immediate: true })
         this.pump()
         return
       }
@@ -86,43 +87,50 @@ class KeyBatchQueue implements BatchQueue {
     const batch = this.pending
     this.pending = []
     this.pendingChars = 0
-    this.waiting.push(batch)
+    this.waiting.push({ tasks: batch, immediate: false })
     this.pump()
   }
 
   /** 同 key 并发槽：inFlight 上限 concurrency，空槽时派发等待中的批。 */
   private pump(): void {
     while (this.inFlight < this.opts.concurrency && this.waiting.length > 0) {
-      const batch = this.waiting.shift() as PendingTask[]
+      const batch = this.waiting.shift()!
       this.inFlight++
-      void this.dispatch(batch).finally(() => {
+      void this.dispatch(batch.tasks, batch.immediate).finally(() => {
         this.inFlight--
         this.pump()
       })
     }
   }
 
-  private async dispatch(batch: PendingTask[]): Promise<void> {
+  private async dispatch(batch: PendingTask[], immediate: boolean): Promise<void> {
     const texts = batch.map((t) => t.text)
     try {
-      const results = await this.taskFn(texts)
+      const results = await this.taskFn(texts, immediate)
       batch.forEach((task, i) => task.resolve(results[i] ?? task.text))
       return
-    } catch {
-      // 整批失败 → 逐条兜底，单条失败只 reject 该条
+    } catch (error) {
+      if (!(error instanceof BatchFormatError)) {
+        batch.forEach(task => task.reject(error))
+        return
+      }
     }
-    await Promise.all(
-      batch.map(async (task) => {
-        try {
-          const single = this.extra.fallbackSingles
-            ? await this.extra.fallbackSingles(task.text)
-            : ((await this.taskFn([task.text]))[0] ?? task.text)
-          task.resolve(single)
-        } catch (err) {
-          task.reject(err)
+    // Keep one fallback request per in-flight batch. Network slots are also shared across queues.
+    for (let index = 0; index < batch.length; index++) {
+      const task = batch[index]
+      try {
+        const single = this.extra.fallbackSingles
+          ? await this.extra.fallbackSingles(task.text, immediate)
+          : ((await this.taskFn([task.text], immediate))[0] ?? task.text)
+        task.resolve(single)
+      } catch (error) {
+        task.reject(error)
+        if (typeof (error as { statusCode?: number })?.statusCode === 'number') {
+          batch.slice(index + 1).forEach(pending => pending.reject(error))
+          return
         }
-      }),
-    )
+      }
+    }
   }
 }
 
@@ -131,7 +139,7 @@ const queues = new Map<string, { queue: BatchQueue; configuration?: string }>()
 /** 按 key 复用队列（同 key 共享节流窗口与并发槽）。 */
 export function getBatchQueue(
   key: string,
-  taskFn: (texts: string[]) => Promise<string[]>,
+  taskFn: (texts: string[], immediate?: boolean) => Promise<string[]>,
   opts: BatchQueueOptions,
   extra?: BatchQueueExtra,
 ): BatchQueue {

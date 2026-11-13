@@ -113,6 +113,7 @@ export function showError(el: Element, opts: ErrorOptions): HTMLElement {
   retry.className = 'tv-error-retry'
   retry.textContent = ct('render.retry', '重试')
   retry.addEventListener('click', (e) => {
+    if (!e.isTrusted) return
     e.stopPropagation()
     if (opts.onRetry) opts.onRetry()
   })

@@ -14,7 +14,8 @@
 
 import type { Config, GlossaryTerm, CustomGlossaryLibrary } from '../shared/config'
 import { langName } from '../core/langs'
-import { getFetch } from './engines/fetch'
+import { getFetch, httpError } from './engines/fetch'
+import { scheduleRequest } from './requestPolicy'
 
 // ── 内置库索引 ────────────────────────────────────────────────────────────────
 
@@ -262,29 +263,32 @@ export async function extractTermsWithAI(
   const fallback =
     provider === 'deepseek' ? 'https://api.deepseek.com/v1' : 'https://api.openai.com/v1'
   const base = (ep.endpoint || fallback).replace(/\/+$/, '')
-  const res = await getFetch()(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.engine.keys.openai}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: ep.model,
-      temperature: 0.1,
-      stream: false,
-      messages: [
-        { role: 'system', content: extractSystemPrompt(langName(targetLang, 'en')) },
-        { role: 'user', content: text.slice(0, MAX_EXTRACT_INPUT) },
-      ],
-    }),
-  })
-  if (!res.ok) throw new Error(`extractTerms: HTTP ${res.status}`)
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>
-    error?: { message?: string }
-  }
-  if (data.error?.message) throw new Error(`extractTerms: ${data.error.message}`)
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content !== 'string') throw new Error('extractTerms: unexpected response shape')
-  return parseExtractedTerms(content)
+  return scheduleRequest(config, async () => {
+    const res = await getFetch()(`${base}/chat/completions`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(config.engine.timeoutMs),
+      headers: {
+        Authorization: `Bearer ${config.engine.keys.openai}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: ep.model,
+        temperature: 0.1,
+        stream: false,
+        messages: [
+          { role: 'system', content: extractSystemPrompt(langName(targetLang, 'en')) },
+          { role: 'user', content: text.slice(0, MAX_EXTRACT_INPUT) },
+        ],
+      }),
+    })
+    if (!res.ok) throw httpError('extractTerms', res)
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>
+      error?: { message?: string }
+    }
+    if (data.error?.message) throw new Error(`extractTerms: ${data.error.message}`)
+    const content = data.choices?.[0]?.message?.content
+    if (typeof content !== 'string') throw new Error('extractTerms: unexpected response shape')
+    return parseExtractedTerms(content)
+  }, true)
 }
