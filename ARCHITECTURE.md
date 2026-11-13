@@ -29,7 +29,7 @@
 4. 通过服务账户请求预算调用引擎；AI 可聚合批次，当前字幕优先。HTTP 失败不展开为大量单条请求，批格式错误才进入受限回退。
 5. 合并结果并一次还原占位符，写入缓存及统计。空闲批队列释放闭包。
 
-自定义端点校验 HTTP(S) 地址及主机权限。受配置的凭证请求限制重定向。Foxmori 账户连接通过主站标签页的同源会话读取账户、分组和创建密钥，密码与账户会话由主站处理。
+自定义端点校验 HTTP(S) 地址及主机权限。受配置的凭证请求限制重定向。Foxmori 账户连接通过主站标签页的同源会话读取账户资料和可用套餐。创建密钥时，内容脚本调用 `POST /api/console/foxtranslate/key`，主站在同一会话中核验预期账号和套餐并发放密钥，扩展后台只保存返回的单个密钥。
 
 ## 网页和字幕生命周期
 
@@ -53,4 +53,4 @@ YouTube 主世界桥接读取当前 CC 与原生字幕请求参数，内容脚�
 
 `npm test` 运行单元与组件回归；`npm run test:browser` 依次运行 `acceptance.mjs`、`security.mjs` 和 `regressions.mjs`。浏览器验收使用临时配置、可控页面与模拟服务。设置 `FOXTRANSLATE_TEST_CHROMIUM` 可指定浏览器二进制，设置 `FOXTRANSLATE_EXTENSION_DIR` 可验证正式安装包。
 
-当前功能与验证见 [v0.0.5 发布说明](docs/releases/v0.0.5.md)，安全审查基线见 [审查记录](docs/audits/v0.0.4.md)，维护和发布步骤见 [更新指南](docs/UPDATING.md)。
+当前功能与验证见 [v0.0.6 发布说明](docs/releases/v0.0.6.md)，安全审查基线见 [审查记录](docs/audits/v0.0.4.md)，维护和发布步骤见 [更新指南](docs/UPDATING.md)。

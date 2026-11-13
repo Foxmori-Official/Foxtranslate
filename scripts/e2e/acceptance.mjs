@@ -357,7 +357,7 @@ try {
   // The extension reuses the first-party session and never asks for its password.
   let createdKeys = 0
   let availableGroups = []
-  const consoleCookie = 'fm_fixture=logged-in; Path=/api/console/; HttpOnly; Secure; SameSite=Strict'
+  const consoleRequests = []
   const foxmoriFixture = async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -365,31 +365,40 @@ try {
       await route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<a href="/fixture-login">登录测试账户</a>' })
       return
     }
-    if (path === '/fixture-login') {
+    if (path === '/fixture-login' || path === '/fixture-switch-account') {
+      const accountId = path === '/fixture-login' ? 12 : 13
+      const consoleCookie = `fm_fixture=${accountId}; Path=/api/console/; HttpOnly; Secure; SameSite=Strict`
       await route.fulfill({ contentType: 'text/html; charset=utf-8', headers: { 'set-cookie': consoleCookie }, body: '<p>已登录测试账户</p>' })
       return
     }
+    consoleRequests.push(`${request.method()} ${path}`)
     const headers = await request.allHeaders()
-    if (!headers.cookie?.includes('fm_fixture=logged-in')) {
+    const accountId = Number(headers.cookie?.match(/(?:^|; )fm_fixture=(12|13)(?:;|$)/)?.[1])
+    if (!accountId) {
       await route.fulfill({ status: 401, json: { message: '请先登录' } })
       return
     }
     if (path === '/api/console/user/profile') {
-      await route.fulfill({ json: { code: 0, data: { id: 12, email: 'fixture@example.test', username: 'Fixture' } } })
+      await route.fulfill({ json: { code: 0, data: { id: accountId, email: 'fixture@example.test', username: 'Fixture' } } })
     } else if (path === '/api/console/groups/available') {
       await route.fulfill({ json: { code: 0, data: availableGroups } })
-    } else if (path === '/api/console/keys' && request.method() === 'POST') {
-      const valid = headers.origin === 'https://foxmori.com' && headers['sec-fetch-site'] !== 'cross-site'
+    } else if (path === '/api/console/foxtranslate/key' && request.method() === 'POST') {
+      const valid = headers.origin === 'https://foxmori.com' && headers['sec-fetch-site'] !== 'cross-site' && headers['content-type'] === 'application/json'
       const body = request.postDataJSON()
-      if (!valid || body?.name !== 'Foxmori' || body?.group_id !== 7) {
+      if (!valid || !Number.isSafeInteger(body?.account_id) || body?.group_id !== 7) {
         await route.fulfill({ status: 403, json: { message: 'Invalid origin or key request' } })
         return
       }
+      if (body.account_id !== accountId) {
+        await route.fulfill({ status: 409, json: { message: 'Account mismatch' } })
+        return
+      }
+      if (!availableGroups.some(group => group.id === body.group_id)) {
+        await route.fulfill({ status: 403, json: { message: '测试套餐已不可用' } })
+        return
+      }
       createdKeys++
-      await route.fulfill({ json: { code: 0, data: { id: 17, key: 'sk-fixture-foxmori' } } })
-    } else if (path === '/api/console/keys') {
-      const items = createdKeys ? [{ name: 'Foxmori', status: 'active', group_id: 7, key: 'sk-fixture-foxmori' }] : []
-      await route.fulfill({ json: { code: 0, data: { items } } })
+      await route.fulfill({ json: { code: 0, data: { key: 'sk-fixture-foxmori' } } })
     } else {
       await route.fulfill({ status: 404, json: { message: 'Unknown fixture route' } })
     }
@@ -436,9 +445,33 @@ try {
     await leftRight(provider, '.sidebar', '.main')
   }
   await provider.setViewportSize({ width: 1440, height: 900 })
-  await provider.getByRole('button', { name: '创建 Foxmori 密钥' }).click()
+  const createKey = provider.getByRole('button', { name: '创建 Foxmori 密钥' })
+  const originalEngine = (await config({})).engine
+  async function assertKeyRejected(hint) {
+    const requestCount = consoleRequests.length
+    await createKey.click()
+    await provider.locator('.account-status[role="alert"]').filter({ hasText: hint }).waitFor()
+    assert.deepEqual(consoleRequests.slice(requestCount), ['POST /api/console/foxtranslate/key'])
+    assert.equal(createdKeys, 0)
+    assert.equal((await config({})).engine.keys.foxmori, originalEngine.keys.foxmori)
+  }
+  await site.goto('https://foxmori.com/fixture-switch-account')
+  await assertKeyRejected('登录账户已切换，请重新连接')
+  await browser.clearCookies({ name: 'fm_fixture' })
+  await assertKeyRejected('请在 Foxmori 主站重新登录')
+  await site.goto('https://foxmori.com/fixture-login')
+  const selectedGroups = availableGroups
+  availableGroups = []
+  await assertKeyRejected('测试套餐已不可用')
+  availableGroups = selectedGroups
+  await connect.click()
+  await provider.locator('.account-status:empty').waitFor({ state: 'attached' })
+  const requestCount = consoleRequests.length
+  await createKey.click()
   await provider.getByText('密钥已配置，请获取模型列表并选择模型。', { exact: true }).waitFor()
+  assert.deepEqual(consoleRequests.slice(requestCount), ['POST /api/console/foxtranslate/key'])
   assert.equal(createdKeys, 1)
+  assert.equal((await config({})).engine.keys.foxmori, 'sk-fixture-foxmori')
   assert.equal((await config({})).engine.provider, 'google')
   await provider.locator('[data-engine-id="foxmori"][aria-pressed="true"]').waitFor()
   assert.equal(await provider.locator('.engine-current').count(), 1)
