@@ -157,7 +157,9 @@ function offerTranslation(el: HTMLElement, translation: string) {
   const copy = document.createElement('button')
   copy.textContent = ct('sel.copy', '复制')
   copy.addEventListener('click', event => {
-    if (event.isTrusted) void navigator.clipboard.writeText(translation).then(() => tip.remove()).catch(() => preview.select())
+    if (!event.isTrusted) return
+    if (!navigator.clipboard) { preview.select(); return }
+    void navigator.clipboard.writeText(translation).then(() => tip.remove()).catch(() => preview.select())
   })
   tip.append(preview, copy)
 }

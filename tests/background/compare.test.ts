@@ -100,7 +100,7 @@ describe('compareTranslate', () => {
 
     const p = compareTranslate('hello', 'zh-CN', ['google', 'bing', 'deepl'], makeConfig())
     // google 仍挂起时，bing/deepl 已被调用 → 证明并行而非串行
-    await vi.waitFor(() => expect(calls).toEqual(['google', 'bing', 'deepl']))
+    await vi.waitFor(() => expect([...calls].sort()).toEqual(['bing', 'deepl', 'google']))
     resolveGoogle({ text: '[google]hello' })
 
     const results = await p
