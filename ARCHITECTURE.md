@@ -1,240 +1,54 @@
-# Foxtranslate 译境 — 架构契约（v1）
+# Foxtranslate 当前架构
 
-> 综合 KISS Translator / FluentRead / Read Frog / Interline / OpenImmersive / MTranBrowser 六家之长，
-> 重构的开源双语翻译浏览器扩展。本文档是**开发契约**：所有模块必须遵守本文定义的目录、接口、消息协议与命名。
+扩展使用 Manifest V3、TypeScript 和 Vite，最低支持 Chrome / Edge 140。界面使用简体中文或 English，翻译源语言及目标语言独立配置。
 
-## 1. 产品定位与功能合成
+## 运行入口
 
-| 来源 | 吸收的能力 |
-|---|---|
-| KISS Translator | 占位符富文本序列化、BatchQueue 聚合翻译（编号 JSON 批协议）、划词/悬停/输入框翻译 |
-| FluentRead | 分层架构（core 纯逻辑零浏览器依赖）、AI 阅读辅助（meaning/grammar/usage/practice 四动作） |
-| Read Frog | 生词本 + 端内 FSRS 闪卡复习（ts-fsrs）、生词高亮 |
-| Interline | 免 Key 开箱即用、~10 种译文样式、缓存 key 含 prompt/glossary 自动失效 |
-| OpenImmersive | 本地敏感信息脱敏（`__PII_*__` 占位符 + 容错还原）、免费引擎链 + 冷却降级 |
-| MTranBrowser | IntersectionObserver 可见才译、计算样式逐项复制、悬停快捷键精确集合匹配、悬浮球 |
+| 目录 | 职责 |
+| --- | --- |
+| `src/background` | 消息权限、配置与生词读写、翻译引擎、缓存、批处理及请求预算 |
+| `src/content` | 整页、划词、悬停、输入翻译，富文本还原、生词高亮和朗读 |
+| `src/subtitles` | YouTube CC 桥接与选轨、字幕调度和渲染、播放器控件、SRT 下载及会议字幕 |
+| `src/options`、`src/popup`、`src/onboarding` | 设置、工具栏弹窗和安装引导 |
+| `src/files` | 文档解析、翻译、校订和下载，PDF 运行时按需加载 |
+| `src/review` | 生词闪卡与 FSRS 复习 |
+| `src/privacy` | 扩展内隐私说明 |
+| `src/shared`、`src/core` | 类型、配置、消息协议、界面组件，以及文本检测、术语匹配和脱敏逻辑 |
 
-翻译和模型列表请求由 background 发送到所选服务。可选的 Foxmori 账户连接通过主站标签页的同源会话读取账户、分组和创建密钥，扩展只保存供模型调用的 API Key。扩展不内置遥测，脱敏可在设置中开启。
+## 消息和数据边界
 
-## 2. 技术选型
+后台通过 `messagePolicy.ts` 校验浏览器提供的消息来源。设置、密钥及完整生词管理接口由扩展页面调用；网页内容脚本取得 `PageConfig` 投影及必要的高亮词条。`chrome.storage.local` 限制为 `TRUSTED_CONTEXTS`，后台完成存储访问限制后才处理数据请求。
 
-- Manifest V3，Chrome 优先（Firefox 后续适配）。
-- 构建：Vite 7 + TypeScript（严格模式）。内容脚本构建为单文件 IIFE（无 import）；background 为 ES module SW；页面为 ES module。
-- 依赖：`ts-fsrs`（FSRS 调度，唯一运行时依赖）。测试：vitest。
-- UI：原生 TS + 手写 CSS（无框架，popup/options/review 三个页面）。
+配置、生词、统计和缓存使用独立存储键。配置变更向内容脚本广播投影，生词变化通知高亮刷新，统计合并写入。网页交互验证可信事件，防止脚本合成操作自动调用翻译服务。
 
-## 3. 目录结构与模块边界
+## 翻译管线
 
-```
-src/
-  core/                    # 纯逻辑：零浏览器 API，可 node 单测
-    text.ts                # 文本工具
-    detect.ts              # 语种/文字系统检测
-    mask.ts                # 敏感信息脱敏+还原
-    glossary.ts            # 术语表占位符注入/还原 + prompt 块
-    styles.ts              # 译文样式定义（id/名称/模式）
-    langs.ts               # 语言表（code↔名称，LLM prompt 用全名）
-    types.ts               # core 共享类型
-  shared/                  # 浏览器环境共享
-    config.ts              # Config 类型 + DEFAULT_CONFIG + normalizeConfig
-    protocol.ts            # 全部消息协议类型
-    store.ts               # chrome.storage 封装：config CRUD + watch、wordbook CRUD、cache
-    ids.ts                 # genId()
-  background/
-    index.ts               # 入口：消息总线、commands、contextMenus
-    translate.ts           # translate() 唯一入口管线（见 §6）
-    batch.ts               # LLM 聚合翻译队列（BatchQueue）
-    requestPolicy.ts       # 配置隔离标识、服务账户共享并发预算、429 冷却
-    cache.ts               # 翻译缓存（内存 LRU + storage 持久）
-    engines/
-      types.ts             # Engine 接口 + EngineContext
-      google.ts            # Google gtx 免费端点
-      bing.ts              # Edge 免费 JWT 端点
-      mymemory.ts          # MyMemory 免费
-      deepl.ts             # DeepL 官方 API（BYOK）
-      libre.ts             # LibreTranslate（可自托管）
-      openaiCompat.ts      # OpenAI 兼容（OpenAI/DeepSeek/任何兼容端点，含自定义）
-      custom.ts            # 自定义 JSON 协议
-      index.ts             # 注册表 + resolveEngine + 免费链顺序
-  content/                 # 全部 IIFE 单文件打包，内容脚本
-    index.ts               # 引导：消息监听、快捷键、悬浮球、配置热同步
-    dom.ts                 # 候选发现/过滤/文本抽取（占位符序列化）
-    render.ts              # 译文注入/样式/撤销
-    page.ts                # PageTranslator：扫描/IO/并发队列/MutationObserver/开关
-    lang.ts                # 块级"已是目标语言"跳过判定
-    selection.ts           # 划词气泡（翻译/AI解析/收藏生词/朗读/复制）
-    hover.ts               # 悬停翻译（修饰键精确集合匹配）
-    input.ts               # 输入框翻译（Alt+Enter / 三连空格，三级回填）
-    floatingBall.ts        # 悬浮球
-    highlight.ts           # 已收藏生词页面高亮
-    content.css(→public/)  # 所有注入样式，类前缀 tv-
-  popup/  options/  review/  # 三个页面：index.html + main.ts + style.css
-public/
-  manifest.json  icons/  content.css
-tests/                     # vitest，core/background 单测
-```
+1. 获取当前配置快照和有效术语表，按配置、语言、上下文及术语摘要查询缓存。
+2. 在后台对完整文本脱敏，应用已编译的术语匹配器。
+3. 网页长段落在预处理后切分，保持隐私、术语占位符及 Unicode 字符完整。
+4. 通过服务账户请求预算调用引擎；AI 可聚合批次，当前字幕优先。HTTP 失败不展开为大量单条请求，批格式错误才进入受限回退。
+5. 合并结果并一次还原占位符，写入缓存及统计。空闲批队列释放闭包。
 
-红线：
-- `core/` 不 import 任何 `chrome.*`/`browser.*`。
-- content 脚本**不直接发 HTTP**，一切翻译走 background 消息。
-- background 不碰 DOM。
-- 扩展自身 UI/译文节点一律带 `data-tv-owned` + `translate="no"`，DOM 过滤必须排除。
+自定义端点校验 HTTP(S) 地址及主机权限。受配置的凭证请求限制重定向。Foxmori 账户连接通过主站标签页的同源会话读取账户、分组和创建密钥，密码与账户会话由主站处理。
 
-## 4. 命名与 DOM 标记约定
+## 网页和字幕生命周期
 
-- 译文 wrapper 自定义元素：`<tv-translation>`，class `tv-tr`；原文备份 `<template class="tv-backup">`。
-- 属性：`data-tv-paragraph`（候选单元）、`data-tv-translated="1"`（已译）、`data-tv-id`（撤销用 id）、`data-tv-owned="1"`（扩展 UI）、`data-tv-loading`、`data-tv-error`。
-- 占位符：`{{n}}`（块内行内元素占位，n 从 1 递增）、`__GLOSSARY_N__`（术语）、`__PII_<TYPE>_<N>__`（敏感信息）。
-- CSS 类前缀 `tv-`，颜色等用 CSS 变量 `--tv-*` 便于换肤。
-- 存储键：`tv:config_v1`、`tv:words_v1`、`tv:cache_v1`、`tv:stats_v1`。
-- `storage.local` 限定为 `TRUSTED_CONTEXTS`。网页内容脚本读取 `getPageConfig` 和 `getHighlights`，后台只向各标签页同步精简配置或生词变更通知；完整配置与生词记录仅供扩展页面使用。
-- `tv:stats_v1` 独立保存翻译字数，首次读取从旧配置的 `stats` 迁移；内存累计后每 2 秒合并写入。`getConfig()` 返回合并后的当前统计，统计变化不触发配置广播。
+整页候选通过惰性迭代器分片发现，接近视口后再抽取文本和判断语言。原文更新使完成标记及旧请求失效。关闭或更新翻译按标签页与文档隔离的请求编号停止后续分段，过期结果不会重新插入。
 
-## 5. Config 契约（shared/config.ts）
+输入翻译检查请求顺序与编辑状态；发生后续编辑时保留输入，提供迟到译文的预览与复制。富文本输出经标签和链接协议白名单处理。
 
-```ts
-export interface Config {
-  version: 1;
-  general: {
-    targetLang: string;            // 默认 'zh-CN'
-    sourceLang: string;            // 'auto'
-    displayMode: 'bilingual' | 'translationOnly';
-    autoTranslateSites: string[];  // 域名名单
-    autoTranslateLangs: string[];  // 总是翻译的语言
-    neverTranslateSites: string[];
-  };
-  engine: {
-    provider: 'google' | 'bing' | 'mymemory' | 'deepl' | 'openai' | 'libretranslate' | 'custom';
-    keys: { deepl: string; openai: string; libreUrl: string; customHeadersJson: string };
-    openai: { endpoint: string; model: string };   // endpoint 默认 https://api.openai.com/v1
-    deepseek: { endpoint: string; model: string }; // 走 openaiCompat，endpoint https://api.deepseek.com/v1
-    custom: { url: string; bodyJson: string };     // 自定义 JSON 协议 {text,from,to}
-    timeoutMs: number;             // 默认 20000
-  };
-  batch: {                         // LLM 聚合翻译
-    enabled: boolean;              // 默认 true
-    maxTexts: number;              // 默认 8
-    maxChars: number;              // 默认 1200
-    intervalMs: number;            // 默认 120
-    concurrency: number;           // 默认 3；请求预算按服务账户共享，实际范围 1–8
-  };
-  style: { styleId: string };      // 默认 'soft-gray'
-  selection: { enabled: boolean; mode: 'bilingual' | 'translationOnly'; maxChars: number };
-  hover: { enabled: boolean; key: 'alt' | 'ctrl' | 'shift' | 'none' };   // none=直接悬停
-  input: { enabled: boolean; trigger: 'altEnter' | 'tripleSpace'; targetLang: string };
-  mask: { enabled: boolean };      // 敏感信息脱敏，默认 false
-  glossary: Array<{ src: string; dst: string }>;
-  learning: { enabled: boolean; highlightOnPage: boolean };
-  floatingBall: { enabled: boolean };
-  stats: { translatedChars: number };
-}
-export const DEFAULT_CONFIG: Config = { /* 按上述默认值 */ };
-export function normalizeConfig(raw: unknown): Config;  // 白名单逐 key 拷贝，脏 key 丢弃、新 key 补默认
-```
+YouTube 主世界桥接读取当前 CC 与原生字幕请求参数，内容脚本负责选轨、前瞻预取、播放位置优先调度和渲染。会议字幕基于平台 DOM 变化读取，切换语言或引擎时重置会话版本。
 
-## 6. 消息协议（shared/protocol.ts）
+## 文档和复习
 
-content/popup → background（chrome.runtime.sendMessage，异步必须 return true）：
+文档解析器产生片段与不可变原件，校订结果保存在翻译 Map 中。HTML/EPUB 每次从原件副本生成下载，Office 格式修改相应 XML，PDF 导出 HTML。PDF 兼容运行时与 worker 配对构建。
 
-```ts
-export type BgRequest =
-  | { kind: 'translate'; text: string; targetLang: string; sourceLang?: string }
-  | { kind: 'translateBatch'; texts: string[]; targetLang: string; sourceLang?: string }
-  | { kind: 'detectLang'; text: string }
-  | { kind: 'aiAssist'; action: 'meaning' | 'grammar' | 'usage' | 'practice'; text: string; targetLang: string }
-  | { kind: 'getConfig' } | { kind: 'setConfig'; patch: Partial<Config> }
-  | { kind: 'saveWord'; word: string; context?: string; translation?: string }
-  | { kind: 'deleteWord'; id: string }
-  | { kind: 'getWords' }
-  | { kind: 'reviewGrade'; wordId: string; rating: 1 | 2 | 3 | 4 }   // again/hard/good/easy
-  | { kind: 'getStats' }          // { dueCount, totalWords, translatedChars }
-  | { kind: 'command'; cmd: 'togglePage' | 'openOptions' | 'openReview' };
-export type BgResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
-```
+生词及复习卡保存在本机，评分通过 ts-fsrs 计算新的到期时间。输入与模型输出作为文本或经白名单处理的内容呈现。
 
-background/popup → content（tabs.sendMessage / runtime.onMessage）：
+## 构建与验证
 
-```ts
-export type ContentRequest =
-  | { kind: 'togglePage' }
-  | { kind: 'pageState' }                      // content 回 { active, translatedCount }
-  | { kind: 'configChanged'; config: Config }; // 热同步
-```
+`npm run build:store` 恢复图片和 PDF 资产，依次构建扩展页面/后台、内容脚本、字幕和 YouTube 桥接，再整理输出。`npm run verify:package` 检查版本、页面、脚本、最低浏览器与中英文 locale；`node scripts/zip-dist.mjs` 生成安装 ZIP。
 
-**translate 失败用 `{ok:false,error}` resolve 返回，绝不 reject**（调用方靠它区分"同文"与"真失败"）。
+`npm test` 运行单元与组件回归；`npm run test:browser` 依次运行 `acceptance.mjs`、`security.mjs` 和 `regressions.mjs`。浏览器验收使用临时配置、可控页面与模拟服务。设置 `FOXTRANSLATE_TEST_CHROMIUM` 可指定浏览器二进制，设置 `FOXTRANSLATE_EXTENSION_DIR` 可验证正式安装包。
 
-## 7. 翻译管线（background/translate.ts）
-
-```
-translate(text, targetLang, sourceLang):
-  1. cache.get(key) 命中 → return {text:cached, detectedLang}
-  2. mask.enabled → maskSensitive(text) 得 masked + entities
-  3. glossary 非空 → 注入 __GLOSSARY_N__（同时对 LLM 追加 glossary prompt 块）
-  4. 引擎路由：BYOK 引擎按 config.engine.provider；免费引擎失败链 [google→bing→mymemory]，单个失败
-     冷却 60s 沉底重试下一个；BYOK 不进链（配置错误不该被静默掩盖）
-  5. LLM 引擎且 batch.enabled 且 supportsBatch → 走 BatchQueue（编号 JSON 协议：system 要求输出
-     {"translations":[{"id":1,"text":"..."}]}，解析后按 id 对齐；仅批格式错误回退单发）
-  6. 一次扫描还原术语与 PII 占位符；不再解析已还原内容，同一 PII token 最多还原一次
-  7. 写缓存（key 含 provider/配置 SHA-256/langpair/textHash/上下文摘要/术语表 SHA-256），独立累计翻译字数
-```
-
-同一配置快照共用合并后的术语库和编译匹配器。词库扫描保留长词优先，支持连续中日韩文字和中英混排。整页翻译先建立视口观察器，再扫描候选；距视口 400px 内的段落才入队，动态变动合并后分批扫描。
-
-自定义端点使用 HTTP(S) 与浏览器主机授权；翻译、AI 和模型查询的可配置端点不跟随重定向。允许明确授权的本地或内网服务；主机授权不是 DNS 解析结果校验。
-
-请求调度覆盖批量、单条、失败回退和 AI 辅助。同一服务源与凭证共享并发预算，模型、语言对和字幕 scope 不增加额外槽位；当前字幕任务优先于尚未发出的普通请求。HTTP 错误不触发整批拆分重试，429 暂停同账户队列（Retry-After 上限 5 分钟，缺省 1 秒）。每账户最多等待 256 个请求，后台最多同时跟踪 64 个活动账户。
-
-队列配置标识包含引擎端点、凭证、模型、专家提示词和批参数；配置变化后新任务使用新闭包，已经接受的旧任务按原配置结束。持久化缓存仅保存配置摘要，不保存原始凭证。网页交互入口验证可信输入；扩展控件中的 change/input 还要求对应的真实指针或键盘操作，防止合成 click 的默认动作绕过事件检查。
-
-LLM system prompt 四要素：translator 角色、目标语言**全名**（langs.ts NAME 表）、只输出译文、
-检测到 `__PII_` 时追加占位符保护句。temperature 0.1。
-
-## 8. 内容脚本管线（content/）
-
-```
-PageTranslator:
-  scan(root) → 候选单元（TreeWalker，acceptNode 过滤；直接块标签集 h1-h6/p/li/dd/td/th/blockquote/figcaption；
-  行内 run 聚合成组）；跳过：skipTags(script/style/code/pre/svg/math/nav/header/footer 首次除外/form 控件/
-  .notranslate/.sr-only/[data-tv-owned]/扩展自身/视觉隐藏/纯数字/标识符 URL 邮箱/超长短文本)
-  → IntersectionObserver(rootMargin 1000px) 可见才译，离屏入队
-  → 并发队列（默认 4 worker，45s 超时，失败插 .tv-error 可点击重试）
-  → 单块流程：extractText（占位符序列化 {{n}} 保行内结构）→ 已是目标语言跳过（lang.ts 文字占比启发）
-     → sendMessage translate → sameText 归一化比对防双份 → injectTranslation
-  → MutationObserver(childList+subtree+characterData) 自忽略写入、idle 100ms 合批重扫新增节点
-```
-
-注入（render.ts）：
-- bilingual：`<tv-translation class="tv-tr tv-tr-block|inline">`，计算样式复制（fontFamily/fontSize/
-  fontWeight/fontStyle/lineHeight/letterSpacing/textAlign/color + `unicode-bidi:plaintext`），
-  短文本（≤12 字符）行内、长文本块级；父容器 grid/flex/table 时插元素**内部**。
-- translationOnly：原文移入 wrapper 内 `<template class="tv-backup">`，译文置前。
-- 样式：styles.ts 定义的 styleId → CSS 类（content.css），跟随 config.style.styleId。
-- 撤销：按 data-tv-* 标记完全逆操作，DOM 还原。
-
-## 9. 生词本与 FSRS（shared/store.ts + review 页）
-
-```ts
-export interface WordItem {
-  id: string; word: string; context?: string; translation?: string;
-  sourceLang?: string; targetLang?: string; note?: string; createdAt: number;
-  card: { due: number; stability: number; difficulty: number; elapsed_days: number;
-          scheduled_days: number; reps: number; lapses: number; state: number; last_review?: number };
-  seenCount: number;
-}
-```
-- 保存入口：划词气泡"收藏"按钮；存 context（所在句）与 translation。
-- 调度：ts-fsrs `createEmptyCard` 初始；复习评分 `fsrs.repeat(card, now)[rating].card`。
-- review 页：到期卡队列（due<=now 或 state==0 新卡），四键评分，显示下一间隔预览。
-- 生词高亮（content/highlight.ts）：开启后扫描文本节点匹配词表，包 `<mark class="tv-hl">`，悬停弹释义。
-
-## 10. 构建
-
-- `vite.config.ts`：多入口 background/popup/options/review，format es，chunks 共享；`public/` 拷贝 manifest+icons+content.css。
-- `vite.content.config.ts`：lib 模式 IIFE 单文件 `dist/content.js`（`build.lib.cssFileName:'content'` 不依赖，css 走 public 静态文件）。
-- `npm run build` = 两步串联；`npm run test` = vitest run；`npm run typecheck` = tsc --noEmit。
-
-## 11. 测试策略
-
-- vitest 单测：core/text、core/mask（OpenImmersive 17 例移植+新增）、core/glossary、core/detect、
-  background/engines（注入 fetch mock）、batch 对齐、fsrs 调度、normalizeConfig。
-- 浏览器实测：control-browser 加载 dist/，在本地测试页 + 英文站点验证整页翻译/划词/悬停/输入框/脱敏/闪卡。
+当前版本的修复与验证见 [v0.0.4 审查记录](docs/audits/v0.0.4.md)，维护和发布步骤见 [更新指南](docs/UPDATING.md)。

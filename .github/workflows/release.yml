@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       notes_tag:
-        description: 更新正文的已发布版本（例如 v0.0.1）
+        description: 更新正文的已发布版本（例如 v0.0.4）
         type: string
         required: true
 permissions:
