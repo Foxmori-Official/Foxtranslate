@@ -1,7 +1,7 @@
 {
   "name": "foxtranslate",
   "displayName": "Foxtranslate - 开源双语翻译",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Foxmori 的开源双语翻译扩展，支持网页、文档、YouTube 字幕和生词复习。",
   "type": "module",
   "scripts": {
