@@ -196,13 +196,10 @@ class MeetingSession {
 
   /** 配置热更新：目标语言变化时清缓存强制重译 */
   updateConfig(config: PageConfig): void {
-    const langChanged = config.general.targetLang !== this.config.general.targetLang
+    const translationChanged = config.general.targetLang !== this.config.general.targetLang ||
+      config.general.sourceLang !== this.config.general.sourceLang || config.engine.provider !== this.config.engine.provider
     this.config = config
-    if (langChanged) {
-      this.cache.clear()
-      this.failed.clear()
-      this.lastSignature = ''
-    }
+    if (translationChanged) this.resetState()
     this.scheduleSync()
   }
 
@@ -370,6 +367,8 @@ class MeetingSession {
   /** 翻译未命中缓存的字幕：并发 2；失败静默跳过该条（记时间戳，窗口内不重试，下一条不受影响） */
   private async translatePending(): Promise<void> {
     const gen = this.generation
+    const language = this.config.general.targetLang
+    const current = () => !this.disposed && gen === this.generation
     const now = Date.now()
     const pending = this.cues.filter(
       (cue) =>
@@ -381,14 +380,16 @@ class MeetingSession {
     for (const cue of pending) this.inflight.add(cue.hash)
     this.renderPanel() // 显示 pending 占位
     await mapLimit(pending, TRANSLATE_CONCURRENCY, async (cue) => {
+      if (!current()) return
       try {
-        this.cache.set(cue.hash, await translateText(cue.text, this.config.general.targetLang))
+        const translated = await translateText(cue.text, language)
+        if (current()) this.cache.set(cue.hash, translated)
       } catch {
-        this.failed.set(cue.hash, Date.now()) // 静默跳过该条，下一条继续
+        if (current()) this.failed.set(cue.hash, Date.now())
       } finally {
-        this.inflight.delete(cue.hash)
+        if (current()) this.inflight.delete(cue.hash)
       }
-      if (!this.disposed && gen === this.generation) this.renderPanel()
+      if (current()) this.renderPanel()
     })
   }
 

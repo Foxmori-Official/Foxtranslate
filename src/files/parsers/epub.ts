@@ -164,14 +164,16 @@ async function buildEpub(doc: ParsedDoc, translations: Map<number, string>, mode
   // 回写各章
   const modified = new Map<string, string>()
   for (const ch of chapters) {
+    const dom = ch.doc.cloneNode(true) as Document
+    const elements = collectSemanticElements(dom).filter(el => isMeaningfulText(normalizeText(el.textContent ?? '')))
     let touched = false
-    for (let i = 0; i < ch.elements.length; i++) {
+    for (let i = 0; i < elements.length; i++) {
       const t = translations.get(ch.segStart + i)
       if (t === undefined) continue
-      applyTranslation(ch.elements[i], t, mode, ch.xhtml)
+      applyTranslation(elements[i], t, mode, ch.xhtml)
       touched = true
     }
-    if (touched) modified.set(ch.path, serializeChapter(ch))
+    if (touched) modified.set(ch.path, serializeChapter({ ...ch, doc: dom }))
   }
 
   // 重打包：mimetype 第一条且 STORE，其余按原顺序（修改过的章节写新内容）

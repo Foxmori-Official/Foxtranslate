@@ -5,6 +5,8 @@
   <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">下载安装包</a> · <a href="#快速安装">安装步骤</a> · <a href="README.en.md">English</a></p>
 </div>
 
+最低需要 Chrome / Edge 140，以支持扩展本地存储隔离和文档解析。
+
 ## 快速安装
 
 1. 从 [GitHub Releases](https://github.com/Foxmori-Official/Foxtranslate/releases/latest) 下载 `foxtranslate-版本号.zip` 并解压。使用发布附件中的安装包。

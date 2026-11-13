@@ -159,14 +159,15 @@ export function maskSensitive(text: string): MaskResult {
   if (!text) return { masked: text, entities: [] };
 
   const spans: Span[] = [];
-  // 被高优先级校验明确拒收的区间（如校验码错误的身份证），低优先级类型不得认领
-  const tainted: Array<Pick<Span, 'start' | 'end'>> = [];
-  const overlaps = (s: number, e: number): boolean =>
-    spans.some((x) => s < x.end && e > x.start) ||
-    tainted.some((x) => s < x.end && e > x.start);
+  // Accepted and rejected intervals both block lower-priority detectors.
+  // Each regex yields disjoint, ordered matches, so merge once per regex rather than per entity.
+  type Range = Pick<Span, 'start' | 'end'>;
+  let blocked: Range[] = [];
 
   for (const det of DETECTORS) {
     for (const re of det.regexes) {
+      const added: Range[] = [];
+      let cursor = 0;
       re.lastIndex = 0; // 模块级共享正则，每次使用前复位
       let m: RegExpExecArray | null;
       while ((m = re.exec(text)) !== null) {
@@ -176,12 +177,22 @@ export function maskSensitive(text: string): MaskResult {
           re.lastIndex++; // 防御零宽匹配死循环
           continue;
         }
-        if (overlaps(start, end)) continue;
+        while (cursor < blocked.length && blocked[cursor].end <= start) cursor++;
+        if (cursor < blocked.length && blocked[cursor].start < end) continue;
+        added.push({ start, end });
         if (det.validate && !det.validate(m[0])) {
-          tainted.push({ start, end });
           continue;
         }
         spans.push({ start, end, type: det.type, value: m[0] });
+      }
+      if (added.length) {
+        const merged: Range[] = [];
+        let left = 0, right = 0;
+        while (left < blocked.length || right < added.length) {
+          if (right >= added.length || (left < blocked.length && blocked[left].start < added[right].start)) merged.push(blocked[left++]);
+          else merged.push(added[right++]);
+        }
+        blocked = merged;
       }
     }
   }

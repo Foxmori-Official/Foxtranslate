@@ -26,7 +26,7 @@ interface BootResult {
 let currentConfig: Config
 
 /** 每个用例一套全新模块状态 + DOM + 桩；getConfig 返回指定 uiLang */
-async function boot(uiLang: string, failSave = false): Promise<BootResult> {
+async function boot(uiLang: Config['uiLang'], failSave = false): Promise<BootResult> {
   vi.resetModules()
   document.body.innerHTML = '<div id="app"></div>'
   const sent: BgRequest[] = []
@@ -232,8 +232,8 @@ describe('onboarding 页', () => {
     )
   })
 
-  it('i18n：旧繁体中文界面设置归到简体中文，storage 中 uiLang 变化时即时重渲染', async () => {
-    const { storageListener } = await boot('zh-TW')
+  it('i18n：storage 中 uiLang 变化时即时重渲染中英文界面', async () => {
+    const { storageListener } = await boot('zh-CN')
 
     expect(q('.ob-step-title').textContent).toBe('欢迎使用 Foxtranslate')
     expect(q('.ob-next').textContent).toBe('下一步')

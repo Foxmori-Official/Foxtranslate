@@ -89,7 +89,9 @@ function parseHtml(buf: ArrayBuffer, name: string): ParsedDoc {
 }
 
 function buildHtml(doc: ParsedDoc, translations: Map<number, string>, mode: OutputMode): BuiltFile {
-  const { doc: dom, elements, hasDoctype } = doc.state as HtmlState
+  const { doc: original, hasDoctype } = doc.state as HtmlState
+  const dom = original.cloneNode(true) as Document
+  const elements = collectSemanticElements(dom).filter(el => isMeaningfulText(normalizeText(el.textContent ?? '')))
   for (let i = 0; i < elements.length; i++) {
     const t = translations.get(i)
     if (t === undefined) continue // 失败保留原文

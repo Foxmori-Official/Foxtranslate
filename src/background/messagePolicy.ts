@@ -2,7 +2,7 @@ import type { BgRequest } from '../shared/protocol'
 
 const PAGES = new Set(['/options.html', '/popup.html', '/onboarding.html', '/files.html', '/review.html', '/privacy.html'])
 const CONTENT_ACTIONS = new Set<BgRequest['kind']>([
-  'translate', 'detectLang', 'compareTranslate', 'aiAssist', 'aiChat',
+  'translate', 'cancelTranslation', 'detectLang', 'compareTranslate', 'aiAssist', 'aiChat',
   'getPageConfig', 'getHighlights', 'saveWord', 'setBadge',
 ])
 

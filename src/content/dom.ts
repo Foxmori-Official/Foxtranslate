@@ -21,6 +21,7 @@ const SEMANTIC_SELECTOR = [
 
 /** 叶子兜底容器 */
 const LEAF_SELECTOR = 'div, section, article, aside, main, header, footer, span, label, button'
+const DISCOVERY_SKIP = SKIP_SELECTOR.replace('[data-tv-translated],', '')
 
 /** 递归抽取时停止下钻的块级子元素（其文本属于独立单元） */
 const BLOCK_CHILD_TAGS = new Set([
@@ -176,6 +177,34 @@ export function extractText(el: Element): ExtractedText | null {
 
 export interface Unit extends ExtractedText {
   element: Element
+}
+
+function structuralCandidate(el: Element): boolean {
+  return el.matches(SEMANTIC_SELECTOR) || (el.matches(LEAF_SELECTOR) &&
+    Array.from(el.childNodes).some(node => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length >= 12))
+}
+
+/** Cheap discovery is consumed in idle slices; text and style checks wait for intersection. */
+export function* discoverCandidates(root: ParentNode): Generator<Element | null> {
+  if (root instanceof Element && root.closest(DISCOVERY_SKIP)) return
+  if (root instanceof HTMLElement && structuralCandidate(root)) yield root
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: node => node instanceof HTMLElement && !node.matches(DISCOVERY_SKIP)
+      ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+  })
+  while (walker.nextNode()) {
+    const el = walker.currentNode as Element
+    yield structuralCandidate(el) ? el : null
+  }
+}
+
+/** Inline descendants are covered by their source unit; block children are independent. */
+export function coveredByParent(el: Element, targetLang: string): boolean {
+  for (let child = el, parent = el.parentElement; parent; child = parent, parent = parent.parentElement) {
+    if (BLOCK_CHILD_TAGS.has(child.tagName)) return false
+    if (structuralCandidate(parent) && isValidUnit(parent, targetLang) !== 'skip') return true
+  }
+  return false
 }
 
 /** 元素是否为合法翻译单元 */

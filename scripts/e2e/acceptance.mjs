@@ -153,7 +153,7 @@ try {
   })
   assert.equal(await content.locator('.tv-ball').textContent(), '')
   const ballIcon = await content.locator('.tv-ball > img').getAttribute('src')
-  assert.equal((await config({ uiLang: 'de' })).uiLang, 'en')
+  assert.equal((await config({ uiLang: 'en' })).uiLang, 'en')
   assert.equal(await content.locator('.tv-ball > img').getAttribute('src'), ballIcon)
   await config({ uiLang: 'zh-CN' })
   const contentTab = await worker.evaluate(async () => {

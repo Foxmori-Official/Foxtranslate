@@ -91,6 +91,8 @@ describe('actual request budgets', () => {
   it.each(['document', 'page'])('stops %s format fallbacks when the service rejects a single request', async path => {
     const c = config()
     c.engine.keys.openai = 'fallback-auth-' + path
+    c.batch.maxTexts = 8
+    c.batch.intervalMs = 1000
     let calls = 0
     setFetchImpl(async (_url, init) => {
       calls++

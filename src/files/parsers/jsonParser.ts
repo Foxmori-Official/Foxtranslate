@@ -85,7 +85,8 @@ function parseJson(buf: ArrayBuffer, name: string): ParsedDoc {
 }
 
 /** 按路径在深拷贝上设值 */
-function setAtPath(root: unknown, path: PathSeg[], value: string): void {
+function setAtPath(root: unknown, path: PathSeg[], value: string): unknown {
+  if (!path.length) return value
   let cur = root
   for (let i = 0; i < path.length - 1; i++) {
     const seg = path[i]
@@ -97,11 +98,12 @@ function setAtPath(root: unknown, path: PathSeg[], value: string): void {
   } else if (typeof cur === 'object' && cur !== null) {
     (cur as Record<string, unknown>)[last as string] = value
   }
+  return root
 }
 
 function buildJson(doc: ParsedDoc, translations: Map<number, string>, mode: OutputMode): BuiltFile {
   const { root, entries } = doc.state as JsonState
-  const clone: unknown = structuredClone(root)
+  let clone: unknown = structuredClone(root)
   for (const { path, segId } of entries) {
     const t = translations.get(segId)
     if (t === undefined) continue
@@ -111,7 +113,7 @@ function buildJson(doc: ParsedDoc, translations: Map<number, string>, mode: Outp
       cur = Array.isArray(cur) ? cur[seg as number] : (cur as Record<string, unknown>)[seg as string]
     }
     const orig = typeof cur === 'string' ? cur : ''
-    setAtPath(clone, path, mode === 'bilingual' ? `${orig} | ${t}` : t)
+    clone = setAtPath(clone, path, mode === 'bilingual' ? `${orig} | ${t}` : t)
   }
   return {
     blob: new Blob([JSON.stringify(clone, null, 2)], { type: 'application/json;charset=utf-8' }),

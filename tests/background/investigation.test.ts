@@ -118,3 +118,38 @@ it('refuses malformed or unauthorized destinations and preserves explicitly gran
   expect((await translate('fixture', { targetLang: 'zh-CN' }, c)).text).toBe('local translated')
   expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:11434/v1/chat/completions', expect.objectContaining({ redirect: 'error', credentials: 'omit' }))
 })
+
+it.each([
+  '4111 1111 1111 1111',
+  '+86 138 0013 8000',
+  '-----BEGIN PRIVATE KEY-----\n' + 'QUJD'.repeat(450) + '\n-----END PRIVATE KEY-----',
+])('masks complete page entities before segmenting: %s', async secret => {
+  const c = structuredClone(DEFAULT_CONFIG)
+  c.mask.enabled = true
+  const calls: string[] = []
+  setFetchImpl(async (url, init) => {
+    const query = new URL(url).searchParams
+    const text = query.get('q') ?? new URLSearchParams(String(init?.body)).get('q') ?? ''
+    calls.push(text)
+    return Response.json([[[text, text]], null, 'en'])
+  })
+  const source = 'W '.repeat(745) + secret + ' ordinary public text.'
+  const result = await translate(source, { targetLang: 'zh-CN', scope: 'page' }, c)
+  expect(calls.join('')).not.toContain(secret)
+  expect(calls.some(text => text.includes('__PII_'))).toBe(true)
+  expect(result.text).toContain(secret)
+})
+
+it('stops later masked chunks when the page translation session is canceled', async () => {
+  const c=structuredClone(DEFAULT_CONFIG)
+  const controller=new AbortController()
+  const calls:string[]=[]
+  setFetchImpl(async(url,init)=>{
+    const text=new URL(url).searchParams.get('q')??new URLSearchParams(String(init?.body)).get('q')??''
+    calls.push(text)
+    controller.abort()
+    return Response.json([[[text,text]],null,'en'])
+  })
+  await expect(translate('A public paragraph. '.repeat(200),{targetLang:'zh-CN',scope:'page',signal:controller.signal},c)).rejects.toMatchObject({name:'AbortError'})
+  expect(calls).toHaveLength(1)
+})

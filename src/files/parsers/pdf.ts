@@ -5,7 +5,7 @@
  * - build 导出双语 HTML（原文段落 + 灰色译文段落，带页码分隔），扩展名 .html。
  * worker：public/pdf.worker.min.js（构建时进 dist，chrome.runtime.getURL 取用）。
  */
-import * as pdfjs from 'pdfjs-dist'
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { isMeaningfulText } from '../../core/text'
 import { baseNameOf, downloadName, type BuiltFile, type DocParser, type OutputMode, type ParsedDoc } from './types'
 

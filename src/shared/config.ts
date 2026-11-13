@@ -1,6 +1,6 @@
 // Config 契约：单一对象 + 读时归一化（normalizeConfig 白名单逐 key 拷贝，等价于隐式 schema 迁移）
 import { BUILTIN_EXPERTS, type ExpertPreset } from '../core/experts'
-import { normalizeUiLang } from './i18n'
+import { normalizeUiLang, type UiLangCode } from './i18n'
 
 export type { ExpertPreset }
 export interface GlossaryTerm { src: string; dst: string }
@@ -116,7 +116,7 @@ export interface Config {
   /** 可自定义快捷键（如 'Alt+T'；空串=禁用） */
   hotkeys: { togglePage: string; compare: string; openOptions: string; toggleSubtitles: string }
   /** 界面显示语言（与翻译目标语言无关）；auto=跟随系统 */
-  uiLang: string
+  uiLang: UiLangCode
   /** 首次安装引导是否已完成 */
   onboardingCompleted: boolean
   stats: { translatedChars: number }

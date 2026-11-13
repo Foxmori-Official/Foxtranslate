@@ -660,7 +660,7 @@ function render(): void {
   }
   select.value = normalizeUiLang(config.uiLang)
   select.addEventListener('change', () => {
-    void applyPatch({ uiLang: select.value }).then(() => app.querySelector<HTMLSelectElement>('.ob-ui-language')?.focus())
+    void applyPatch({ uiLang: normalizeUiLang(select.value) }).then(() => app.querySelector<HTMLSelectElement>('.ob-ui-language')?.focus())
   })
   language.append(select)
   content.append(language)

@@ -47,6 +47,7 @@ class KeyBatchQueue implements BatchQueue {
     private readonly taskFn: (texts: string[], immediate?: boolean) => Promise<string[]>,
     private readonly opts: BatchQueueOptions,
     private readonly extra: BatchQueueExtra = {},
+    private readonly onIdle: () => void = () => {},
   ) {}
 
   addTask(text: string, immediate = false): Promise<string> {
@@ -99,6 +100,7 @@ class KeyBatchQueue implements BatchQueue {
       void this.dispatch(batch.tasks, batch.immediate).finally(() => {
         this.inFlight--
         this.pump()
+        if (!this.inFlight && !this.pending.length && !this.waiting.length) this.onIdle()
       })
     }
   }
@@ -145,7 +147,9 @@ export function getBatchQueue(
 ): BatchQueue {
   const existing = queues.get(key)
   if (existing && existing.configuration === extra?.configuration) return existing.queue
-  const queue = new KeyBatchQueue(taskFn, opts, extra)
+  const queue = new KeyBatchQueue(taskFn, opts, extra, () => {
+    if (queues.get(key)?.queue === queue) queues.delete(key)
+  })
   queues.set(key, { queue, configuration: extra?.configuration })
   return queue
 }

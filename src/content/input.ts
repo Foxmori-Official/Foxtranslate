@@ -13,6 +13,7 @@ let config: Pick<Config, 'input'> | null = null
 let lastKeyTime = 0
 let spaceCount = 0
 let keydownHandler: ((e: KeyboardEvent) => void) | null = null
+const pendingInputs = new WeakMap<HTMLElement, object>()
 
 export function setInputConfig(c: Pick<Config, 'input'>) {
   config = c
@@ -88,11 +89,14 @@ function fireContentEditableInput(el: HTMLElement) {
 /**
  * 智能替换文本：三级降级，每层执行后验证，失败才降级。返回是否任一级成功写入译文。
  */
-export async function smartReplaceText(el: HTMLElement, newText: string): Promise<boolean> {
+export async function smartReplaceText(el: HTMLElement, newText: string, canReplace: () => boolean = () => true): Promise<boolean> {
+  if (!canReplace()) return false
   el.focus()
   await sleep(10)
+  if (!canReplace()) return false
   selectAll(el)
   await sleep(50)
+  if (!canReplace()) return false
 
   // 第 1 级：富文本编辑器优先走合成 paste 事件（多数富文本库监听 paste 并读取 clipboardData）
   if (isRichEditor(el)) {
@@ -114,6 +118,7 @@ export async function smartReplaceText(el: HTMLElement, newText: string): Promis
   }
 
   // 第 2 级：execCommand('insertText')（浏览器原生插入，触发 beforeinput/input 完整管线）
+  if (!canReplace()) return false
   try {
     if (document.execCommand('insertText', false, newText)) {
       await sleep(20)
@@ -124,6 +129,7 @@ export async function smartReplaceText(el: HTMLElement, newText: string): Promis
   }
 
   // 第 3 级：兜底直写
+  if (!canReplace()) return false
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
     // 原生原型链上的 value setter，绕开 React 等对实例 value 的重写
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
@@ -139,7 +145,24 @@ export async function smartReplaceText(el: HTMLElement, newText: string): Promis
   return checkSuccess(el, newText)
 }
 
-function showTip(el: HTMLElement, text: string) {
+function offerTranslation(el: HTMLElement, translation: string) {
+  showTip(el, ct('input.edited', '内容已变化，译文未自动替换。'), 30_000)
+  const tip = document.querySelector('.tv-input-tip')
+  if (!tip) return
+  const preview = document.createElement('textarea')
+  preview.readOnly = true
+  preview.value = translation
+  preview.rows = 3
+  preview.setAttribute('aria-label', ct('input.translation', '待应用的译文'))
+  const copy = document.createElement('button')
+  copy.textContent = ct('sel.copy', '复制')
+  copy.addEventListener('click', event => {
+    if (event.isTrusted) void navigator.clipboard.writeText(translation).then(() => tip.remove()).catch(() => preview.select())
+  })
+  tip.append(preview, copy)
+}
+
+function showTip(el: HTMLElement, text: string, duration = 2200) {
   document.querySelectorAll('.tv-input-tip').forEach((n) => n.remove())
   const tip = document.createElement('div')
   tip.className = 'tv-input-tip'
@@ -149,10 +172,19 @@ function showTip(el: HTMLElement, text: string) {
   const rect = el.getBoundingClientRect()
   tip.style.top = `${rect.top - 34}px`
   tip.style.left = `${rect.left}px`
-  setTimeout(() => tip.remove(), 2200)
+  setTimeout(() => tip.remove(), duration)
 }
 
 async function translateInput(el: HTMLElement, raw: string, targetLang: string) {
+  const request = {}
+  pendingInputs.set(el, request)
+  const original = getText(el)
+  let edited = false
+  const onEdit = () => { edited = true }
+  el.addEventListener('input', onEdit)
+  const isLatest = () => pendingInputs.get(el) === request
+  const canReplace = () => isLatest() && !edited && el.isConnected && getText(el) === original &&
+    config?.input.enabled === true && document.activeElement === el
   let text = raw
   if (config?.input.trigger === 'tripleSpace') text = raw.replace(/[ =\-]{3}$/, '')
   showTip(el, ct('sel.translating', '翻译中…'))
@@ -160,11 +192,17 @@ async function translateInput(el: HTMLElement, raw: string, targetLang: string) 
     const resp = (await chrome.runtime.sendMessage({
       kind: 'translate', text, targetLang, sourceLang: 'auto',
     })) as BgResponse<TranslateResult>
+    if (!isLatest() || !el.isConnected) return
     if (!resp.ok) throw new Error(resp.error)
-    const ok = await smartReplaceText(el, resp.data.text)
+    const ok = await smartReplaceText(el, resp.data.text, canReplace)
+    if (!isLatest() || !el.isConnected) return
+    if (!ok && !canReplace()) { offerTranslation(el, resp.data.text); return }
     showTip(el, ok ? ct('input.replaced', '已翻译并替换') : ct('input.replaceFailed', '替换失败，请手动粘贴'))
   } catch (err) {
-    showTip(el, ct('sel.translateFailed', '翻译失败：') + (err instanceof Error ? err.message : String(err)))
+    if (isLatest() && el.isConnected) showTip(el, ct('sel.translateFailed', '翻译失败：') + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    el.removeEventListener('input', onEdit)
+    if (isLatest()) pendingInputs.delete(el)
   }
 }
 

@@ -10,16 +10,14 @@ export const UI_LANGS: ReadonlyArray<{ code: UiLangCode; name: string }> = [
 ]
 
 export function normalizeUiLang(value: string): UiLangCode {
-  const primary = value.trim().toLowerCase().split(/[-_]/)[0]
-  if (primary === 'zh') return 'zh-CN'
-  return value === 'auto' ? 'auto' : 'en'
+  return value === 'en' || value === 'zh-CN' ? value : 'auto'
 }
 
 export function resolveUiLang(uiLang: string, browserLang?: string): ResolvedLang {
   const preference = normalizeUiLang(uiLang)
   if (preference !== 'auto') return preference
   const locale = browserLang ?? (typeof navigator !== 'undefined' ? navigator.language : 'en')
-  return normalizeUiLang(locale) === 'zh-CN' ? 'zh-CN' : 'en'
+  return /^zh(?:[-_]|$)/i.test(locale) ? 'zh-CN' : 'en'
 }
 
 // ===== 字典注册表（各模块可注册词条，避免单文件冲突） =====
@@ -38,7 +36,7 @@ export function t(key: string, lang: ResolvedLang | string, zhFallback: string):
   if (lang === 'zh-CN') return zhFallback
   const hit = DICTS.get(lang as ResolvedLang)?.get(key)
   if (hit !== undefined) return hit
-  // 语言不在支持列表（如旧配置残留）或该语言缺键：英语兜底，仍无则回退中文原文
+  // 缺少词条时使用英语兜底，仍无则回退中文原文。
   const en = DICTS.get('en')?.get(key)
   return en ?? zhFallback
 }
@@ -87,6 +85,8 @@ const EN: Record<string, string> = {
   'sel.aiRequestFailed': '(Request failed: {msg})',
   'ball.tip': 'Foxtranslate: click to translate / restore (draggable)',
   'input.replaced': 'Translated and replaced',
+  'input.edited': 'The content changed. The translation was not applied automatically.',
+  'input.translation': 'Translation ready to apply',
   'input.replaceFailed': 'Replace failed; paste manually',
   'render.loading': 'Foxtranslate translating…',
   'render.retry': 'Retry',

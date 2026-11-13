@@ -1,16 +1,16 @@
 // PageTranslator：整页双语翻译编排。
 // IntersectionObserver 可见才译 + 并发队列 + MutationObserver 动态跟进 + 完全可逆开关。
-import { findCandidates, extractText, buildTranslationHtml } from './dom'
-import { injectTranslation, removeAllTranslations, showLoading, showError, clearStatus } from './render'
-import { normalizeText, sameText, splitLongText } from '../core/text'
+import { discoverCandidates, coveredByParent, isValidUnit, extractText, buildTranslationHtml } from './dom'
+import { injectTranslation, removeTranslation, removeAllTranslations, showLoading, showError, clearStatus } from './render'
+import { normalizeText, sameText } from '../core/text'
 import type { PageConfig } from '../shared/pageConfig'
 import type { BgResponse, TranslateResult } from '../shared/protocol'
 
 const MAX_CONCURRENT = 4
 const IO_ROOT_MARGIN = '400px 0px'
-const LONG_TEXT_SPLIT = 1500
 const MO_DEBOUNCE_MS = 120
-const SCAN_ROOTS_PER_SLICE = 8
+const SCAN_BUDGET_MS = 6
+const SCAN_UNITS_PER_SLICE = 128
 const CTX_DESC_MAX = 200
 const CTX_BODY_MAX = 400
 const CTX_TOTAL_MAX = 800
@@ -47,35 +47,44 @@ export function resetPageContext(): void {
   pageContextCache = null
 }
 
+const unitSources = new WeakMap<Element, string>()
+const unitRequests = new WeakMap<Element, object>()
+
+function sourceText(el: Element): string {
+  const backup = el.querySelector(':scope > tv-translation > template.tv-backup')
+  if (backup && !Array.from(el.childNodes).some(node => node.nodeType === Node.TEXT_NODE ? !!node.textContent?.trim() : node instanceof Element && !node.hasAttribute('data-tv-owned'))) {
+    return unitSources.get(el) ?? ''
+  }
+  return extractText(el)?.text ?? ''
+}
+
 type TranslationSettings = Pick<PageConfig, 'general' | 'style' | 'contextAware'>
 
-async function requestTranslate(text: string, config: TranslationSettings): Promise<TranslateResult> {
-  const resp = (await chrome.runtime.sendMessage({
+async function requestTranslate(text: string, config: TranslationSettings, signal?: AbortSignal): Promise<TranslateResult> {
+  signal?.throwIfAborted()
+  const requestId = crypto.randomUUID()
+  const cancel = () => { void chrome.runtime.sendMessage({ kind: 'cancelTranslation', requestId }).catch(() => {}) }
+  signal?.addEventListener('abort', cancel, { once: true })
+  try {
+    const resp = (await chrome.runtime.sendMessage({
     kind: 'translate',
     text,
     targetLang: config.general.targetLang,
     sourceLang: config.general.sourceLang,
+    scope: 'page',
+    requestId,
     // 仅开关开启时附带页面上下文；机器引擎在 background 侧忽略
     ...(config.contextAware.enabled ? { context: getPageContext() } : {}),
   })) as BgResponse<TranslateResult>
-  if (!resp.ok) throw new Error(resp.error)
-  return resp.data
+    if (!resp.ok) throw new Error(resp.error)
+    return resp.data
+  } finally { signal?.removeEventListener('abort', cancel) }
 }
 
-/** 长文按句切分后顺序翻译拼接 */
+/** The worker masks the complete paragraph before splitting it. */
 async function translateLongText(text: string, config: TranslationSettings, signal?: AbortSignal): Promise<string> {
-  if (text.length <= LONG_TEXT_SPLIT) {
-    const r = await requestTranslate(text, config)
-    return r.text
-  }
-  const parts = splitLongText(text, LONG_TEXT_SPLIT)
-  const out: string[] = []
-  for (const part of parts) {
-    signal?.throwIfAborted()
-    const r = await requestTranslate(part, config)
-    out.push(r.text)
-  }
-  return out.join('\n')
+  signal?.throwIfAborted()
+  return (await requestTranslate(text, config, signal)).text
 }
 
 /** 立即翻译单个元素（悬停翻译复用）。返回是否成功注入。 */
@@ -84,10 +93,14 @@ export async function translateElement(el: Element, config: TranslationSettings,
   if (el.hasAttribute('data-tv-translated')) return true
   const extracted = extractText(el)
   if (!extracted) return false
+  const request = {}
+  unitRequests.set(el, request)
+  unitSources.set(el, extracted.text)
+  const current = () => !signal?.aborted && el.isConnected && unitRequests.get(el) === request && sourceText(el) === extracted.text
   showLoading(el)
   try {
     const translated = await translateLongText(extracted.text, config, signal)
-    if (signal?.aborted || !el.isConnected) return false
+    if (!current()) return false
     clearStatus(el)
     if (sameText(translated, extracted.text)) {
       el.setAttribute('data-tv-translated', 'skipped')
@@ -96,7 +109,7 @@ export async function translateElement(el: Element, config: TranslationSettings,
     injectTranslation(el, buildTranslationHtml(translated, extracted.placeholders), config)
     return true
   } catch (err) {
-    if (signal?.aborted || !el.isConnected) return false
+    if (!current()) return false
     showError(el, {
       message: err instanceof Error ? err.message : String(err),
       onRetry: () => void translateElement(el, config, signal),
@@ -111,8 +124,9 @@ export class PageTranslator {
   private mo: MutationObserver | null = null
   private pending = new Set<Element>()
   private observed = new Set<Element>()
-  private working = new WeakMap<Element, AbortSignal>()
+  private working = new WeakMap<Element, AbortController>()
   private scanRoots = new Set<Element>()
+  private scans: Generator<Element | null>[] = []
   private running = 0
   private moTimer: ReturnType<typeof setTimeout> | null = null
   private scanIdle: number | null = null
@@ -177,76 +191,101 @@ export class PageTranslator {
     if (this.scanIdle !== null) window.cancelIdleCallback(this.scanIdle)
     this.scanIdle = null
     this.scanRoots.clear()
+    this.scans = []
     this.observed.clear()
     this.pending.clear()
     removeAllTranslations()
   }
 
-  /** 扫描根节点下的候选并交给 IO/队列 */
+  /** Queue discovery without traversing or extracting the entire page synchronously. */
   scan(root: ParentNode) {
-    if (!this.session || !this.io) return
-    const config = this.getConfig()
-    const candidates = findCandidates(root, config.general.targetLang)
-    for (const el of candidates) {
-      if (this.observed.has(el) || this.working.get(el) === this.session.signal) continue
-      this.observed.add(el)
-      this.io.observe(el)
-    }
+    if (!this.session || !(root instanceof Element)) return
+    this.scanRoots.add(root)
+    this.scheduleScan()
+  }
+
+  private invalidateChangedUnit(el: Element) {
+    const previous = unitSources.get(el)
+    if (previous === undefined || sourceText(el) === previous) return
+    unitRequests.delete(el)
+    unitSources.delete(el)
+    this.working.get(el)?.abort()
+    const wrapper = el.querySelector(':scope > tv-translation')
+    // A framework's new content must not be mixed with the saved translation-only source.
+    if (wrapper?.querySelector('template.tv-backup')) wrapper.remove()
+    else removeTranslation(el)
+    el.removeAttribute('data-tv-translated')
+    clearStatus(el)
+    this.unobserve(el)
   }
 
   private queueMutationRoot(el: Element) {
     if (!el.isConnected) return
-    // A streamed inline edit must rescan its paragraph, not only the text's immediate span.
     const root = el.closest('p,li,blockquote,td,th,dd,dt,figcaption,summary,h1,h2,h3,h4,h5,h6') ?? el
+    this.invalidateChangedUnit(root)
     this.scanRoots.add(root)
   }
 
   private onMutations(records: MutationRecord[]) {
     let removed = false
-    for (const r of records) {
-      const target = r.target
-      if (target instanceof Element && target.closest('[data-tv-owned], tv-translation')) continue
-      if (r.type === 'characterData') {
-        const parent = target.parentElement
-        if (parent && !parent.closest('[data-tv-owned], tv-translation')) this.queueMutationRoot(parent)
-        continue
-      }
-      for (const node of Array.from(r.addedNodes)) {
+    for (const record of records) {
+      const target = record.target
+      const parent = target instanceof Element ? target : target.parentElement
+      if (!parent || parent.closest('[data-tv-owned], tv-translation')) continue
+      if (record.type === 'characterData') { this.queueMutationRoot(parent); continue }
+      let sourceChanged = false
+      for (const node of Array.from(record.addedNodes)) {
         if (node instanceof Element) {
           if (node.hasAttribute('data-tv-owned') || node.tagName === 'TV-TRANSLATION') continue
           this.queueMutationRoot(node)
-        } else if (node.nodeType === Node.TEXT_NODE && target instanceof Element) {
-          this.queueMutationRoot(target)
-        }
+          sourceChanged = true
+        } else if (node.nodeType === Node.TEXT_NODE) sourceChanged = true
       }
-      removed ||= Array.from(r.removedNodes).some(node => node instanceof Element && !node.hasAttribute('data-tv-owned'))
+      if (Array.from(record.removedNodes).some(node => node instanceof Element ? !node.hasAttribute('data-tv-owned') : node.nodeType === Node.TEXT_NODE)) {
+        removed = true
+        sourceChanged = true
+      }
+      if (sourceChanged) this.queueMutationRoot(parent)
     }
     if (removed) for (const el of this.observed) if (!el.isConnected) this.unobserve(el)
     if (!this.scanRoots.size || this.moTimer || this.scanIdle !== null) return
-    this.moTimer = setTimeout(() => {
-      this.moTimer = null
-      this.scheduleScan()
-    }, MO_DEBOUNCE_MS)
+    this.moTimer = setTimeout(() => { this.moTimer = null; this.scheduleScan() }, MO_DEBOUNCE_MS)
   }
 
   private scheduleScan() {
+    if (this.scanIdle !== null || !this.session) return
     this.scanIdle = window.requestIdleCallback(deadline => {
       this.scanIdle = null
-      if (!this.session) return
-      // Ignore descendants covered by a queued parent, including updates from earlier observer callbacks.
-      for (const el of this.scanRoots) {
-        for (let parent = el.parentElement; parent; parent = parent.parentElement) {
-          if (this.scanRoots.has(parent)) { this.scanRoots.delete(el); break }
+      if (!this.session || !this.io) return
+      const started = performance.now()
+      let visited = 0
+      while (visited++ < SCAN_UNITS_PER_SLICE) {
+        if (!this.scans.length) {
+          const root = this.scanRoots.values().next().value
+          if (!root) break
+          this.scanRoots.delete(root)
+          if (!root.isConnected) continue
+          let covered = false
+          for (let parent = root.parentElement; parent; parent = parent.parentElement) {
+            if (this.scanRoots.has(parent)) { covered = true; break }
+          }
+          if (covered) continue
+          this.scans.push(discoverCandidates(root))
         }
+        const next = this.scans[0].next()
+        if (next.done) this.scans.shift()
+        else if (next.value) {
+          const el = next.value
+          const work = this.working.get(el)
+          if (el.isConnected && !el.hasAttribute('data-tv-translated') && !this.observed.has(el) && (!work || work.signal.aborted)) {
+            this.observed.add(el)
+            this.io.observe(el)
+          }
+        }
+        if (performance.now() - started >= SCAN_BUDGET_MS || deadline.timeRemaining() < 1) break
       }
-      let scanned = 0
-      for (const el of this.scanRoots) {
-        this.scanRoots.delete(el)
-        if (el.isConnected) this.scan(el)
-        if (++scanned >= SCAN_ROOTS_PER_SLICE || deadline.timeRemaining() < 2) break
-      }
-      if (this.scanRoots.size) this.scheduleScan()
-    }, { timeout: 250 })
+      if (this.scans.length || this.scanRoots.size) this.scheduleScan()
+    }, { timeout: 100 })
   }
 
   private unobserve(el: Element) {
@@ -260,20 +299,31 @@ export class PageTranslator {
       const el = this.pending.values().next().value as Element
       this.unobserve(el)
       if (!el.isConnected || el.hasAttribute('data-tv-translated')) continue
+      const language = this.getConfig().general.targetLang
+      if (coveredByParent(el, language)) continue
+      const valid = isValidUnit(el, language)
+      if (valid !== 'ok') {
+        if (valid === 'done') { unitSources.set(el, sourceText(el)); el.setAttribute('data-tv-translated', 'skipped') }
+        continue
+      }
       void this.process(el, this.session.signal)
     }
   }
 
   private async process(el: Element, signal: AbortSignal) {
     this.running += 1
-    this.working.set(el, signal)
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    signal.addEventListener('abort', abort, { once: true })
+    this.working.set(el, controller)
     try {
-      const ok = await translateElement(el, this.getConfig(), signal)
-      if (signal.aborted) return
+      const ok = await translateElement(el, this.getConfig(), controller.signal)
+      if (controller.signal.aborted) return
       if (ok) this.translatedCount += 1
       else this.failedCount += 1
     } finally {
-      if (this.working.get(el) === signal) this.working.delete(el)
+      signal.removeEventListener('abort', abort)
+      if (this.working.get(el) === controller) this.working.delete(el)
       this.running -= 1
       this.drain()
     }

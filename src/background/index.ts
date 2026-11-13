@@ -36,7 +36,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes['tv:words_v1']) broadcast({ kind: 'wordsChanged' })
 })
 
-async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Promise<unknown> {
+async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender, signal?: AbortSignal): Promise<unknown> {
   assertMessageAccess(msg, sender)
   await storageReady
   const config = await getConfig()
@@ -58,7 +58,7 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       }
       const requestConfig = provider === undefined ? config : { ...config, engine: { ...config.engine, provider } }
       const result = await translate(msg.text, {
-        targetLang, sourceLang, context, immediate, scope, exactProvider: provider !== undefined,
+        targetLang, sourceLang, context, immediate, scope, exactProvider: provider !== undefined, signal,
       }, requestConfig)
       await incrementTranslatedChars(msg.text.length)
       return result
@@ -190,8 +190,23 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
   }
 }
 
+const pageRequests = new Map<string, AbortController>()
+async function dispatch(msg: BgRequest, sender: chrome.runtime.MessageSender): Promise<unknown> {
+  assertMessageAccess(msg, sender)
+  const id = msg.kind === 'translate' || msg.kind === 'cancelTranslation' ? msg.requestId : undefined
+  if (id === undefined) return handle(msg, sender)
+  if (typeof id !== 'string' || !/^[a-z0-9-]{1,64}$/i.test(id)) throw new Error('Invalid translation request')
+  const key = `${sender.tab?.id ?? 'extension'}:${sender.documentId ?? sender.url}:${id}`
+  if (msg.kind === 'cancelTranslation') { pageRequests.get(key)?.abort(); return null }
+  if (pageRequests.has(key) || pageRequests.size >= 512) throw new Error('Translation queue is full')
+  const controller = new AbortController()
+  pageRequests.set(key, controller)
+  try { return await handle(msg, sender, controller.signal) }
+  finally { if (pageRequests.get(key) === controller) pageRequests.delete(key) }
+}
+
 chrome.runtime.onMessage.addListener((msg: BgRequest, sender, sendResponse) => {
-  handle(msg, sender)
+  dispatch(msg, sender)
     .then((data) => sendResponse(ok(data)))
     .catch((e) => sendResponse(err(e)))
   return true // 保持异步通道

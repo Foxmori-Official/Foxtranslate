@@ -50,7 +50,7 @@ try {
     if (location.pathname === '/permissions') document.addEventListener('fixture:probe', async () => {
       const report = {};
       for (const kind of ['getConfig','getPageConfig','getWords','getHighlights','foxmoriAccount','setConfig','setSubtitlePreferences']) {
-        const result = await chrome.runtime.sendMessage({kind,patch:{uiLang:'de',youtube:false}});
+        const result = await chrome.runtime.sendMessage({kind,patch:{uiLang:'en',youtube:false}});
         report[kind] = {ok: result.ok, data: kind === 'getPageConfig' || kind === 'getHighlights' ? result.data : undefined};
       }
       try { report.storageAccessible = !!(await chrome.storage.local.get('tv:config_v1'))['tv:config_v1']; }

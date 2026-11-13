@@ -12,7 +12,12 @@ import { epubParser } from './epub'
 import { docxParser } from './docx'
 import { pptxParser } from './pptx'
 import { xlsxParser } from './xlsx'
-import { pdfParser } from './pdf'
+// Load the PDF runtime only for PDF operations; other file types stay independent.
+const pdfParser: DocParser = {
+  exts: ['pdf'],
+  parse: async (buf, name) => (await import('./pdf')).pdfParser.parse(buf, name),
+  build: async (doc, translations, mode) => (await import('./pdf')).pdfParser.build(doc, translations, mode),
+}
 
 const PARSERS: DocParser[] = [
   textParser,

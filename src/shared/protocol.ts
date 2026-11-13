@@ -3,7 +3,8 @@ import type { PageConfig } from './pageConfig'
 
 // ===== content / popup → background =====
 export type BgRequest =
-  | { kind: 'translate'; text: string; targetLang: string; sourceLang?: string; provider?: string; context?: string; immediate?: boolean; scope?: 'youtube' }
+  | { kind: 'translate'; text: string; targetLang: string; sourceLang?: string; provider?: string; context?: string; immediate?: boolean; scope?: 'youtube' | 'page'; requestId?: string }
+  | { kind: 'cancelTranslation'; requestId: string }
   | { kind: 'translateBatch'; texts: string[]; targetLang: string; sourceLang?: string }
   | { kind: 'detectLang'; text: string }
   | { kind: 'aiAssist'; action: AiAssistAction; text: string; targetLang: string; context?: string }

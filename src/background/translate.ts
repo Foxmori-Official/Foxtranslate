@@ -21,7 +21,7 @@ import {
   type GlossaryEntity,
   type GlossaryTerm,
 } from '../core/glossary'
-import { textHash } from '../core/text'
+import { textHash, splitLongText } from '../core/text'
 import { scriptStats } from '../core/detect'
 import { langName } from '../core/langs'
 import { BUILTIN_EXPERTS } from '../core/experts'
@@ -37,7 +37,8 @@ export interface TranslateOptions {
   bypassCache?: boolean
   exactProvider?: boolean
   immediate?: boolean
-  scope?: 'youtube'
+  scope?: 'youtube' | 'page'
+  signal?: AbortSignal
   targetLang: string
   sourceLang?: string
   /** 页面摘要上下文（content 侧 getPageContext 提取）：仅 AI 引擎注入 system prompt */
@@ -322,21 +323,52 @@ export async function translate(
   opts: TranslateOptions,
   config: Config,
 ): Promise<EngineResult> {
+  opts.signal?.throwIfAborted()
   const from = opts.sourceLang ?? config.general.sourceLang ?? 'auto'
   const to = opts.targetLang
   const glossary = await activeGlossary(config)
   const context = effectiveContext(opts, config.engine.provider)
   const namespace = await cacheNamespace(config, glossary.signature, context, opts.exactProvider)
+  // Page chunks used to be masked separately; do not reuse their incomplete results.
+  if (opts.scope === 'page') namespace.engine += ':page2'
   const key = cacheKey({ ...namespace, from, to, text })
   const cached = await cacheGet(key)
   if (!opts.bypassCache && cached !== undefined) return { text: cached }
 
   const prep = prepare(text, config, glossary.matcher)
   const effConfig = context ? withPageContext(config, maskOutbound(context, config)) : config
-  const routed = await routePrepared(prep.text, from, to, effConfig, glossary.signature, context, opts)
-  const restored = restorePrepared(prep, routed.text)
+  const parts = opts.scope === 'page' ? splitPreparedText(prep.text, 1500) : [prep.text]
+  const output: string[] = []
+  let detectedLang: string | undefined
+  for (const part of parts) {
+    opts.signal?.throwIfAborted()
+    const routed = await routePrepared(part, from, to, effConfig, glossary.signature, context, opts)
+    opts.signal?.throwIfAborted()
+    detectedLang ??= routed.detectedLang
+    output.push(routed.text)
+  }
+  const restored = restorePrepared(prep, output.join('\n'))
   await cacheSet(key, restored)
-  return { text: restored, detectedLang: routed.detectedLang }
+  return { text: restored, detectedLang }
+}
+
+/** Split after masking and glossary substitution; never cut through a protected token. */
+export function splitPreparedText(text: string, limit: number): string[] {
+  if (limit < 1) throw new RangeError('Chunk size must be positive')
+  const ranges = Array.from(text.matchAll(/__PII_[A-Z]+_\d+__|__GLOSSARY_\d+__|<\/?a\d+>|\{\{\d+\}\}/g), match => ({ start: match.index, end: match.index + match[0].length }))
+  const output: string[] = []
+  let start = 0, range = 0
+  while (start < text.length) {
+    // Limit the lookahead work as well as the resulting request size.
+    let end = start + splitLongText(text.slice(start, start + limit * 2), limit)[0].length
+    while (range < ranges.length && ranges[range].end <= end) range++
+    if (range < ranges.length && ranges[range].start < end) end = ranges[range].start > start ? ranges[range].start : ranges[range].end
+    const left = text.charCodeAt(end - 1), right = text.charCodeAt(end)
+    if (left >= 0xd800 && left <= 0xdbff && right >= 0xdc00 && right <= 0xdfff) end = end - 1 > start ? end - 1 : end + 1
+    output.push(text.slice(start, end))
+    start = end
+  }
+  return output
 }
 
 /** 批量入口（消息 kind:'translateBatch'）：逐条 cache 查/预处理，能聚合则一批送 translateBatch 再逐条逆序还原，否则逐条走 translate 管线。 */

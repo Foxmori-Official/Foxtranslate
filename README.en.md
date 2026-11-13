@@ -5,6 +5,8 @@
   <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">Download</a> · <a href="#install">Installation</a> · <a href="README.md">简体中文</a></p>
 </div>
 
+Requires Chrome / Edge 140 or newer for extension storage isolation and document parsing.
+
 ## Install
 
 1. Download the `foxtranslate-version.zip` extension asset from [GitHub Releases](https://github.com/Foxmori-Official/Foxtranslate/releases/latest) and extract it.

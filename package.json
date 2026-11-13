@@ -1,7 +1,7 @@
 {
   "name": "foxtranslate",
   "displayName": "Foxtranslate - 开源双语翻译",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Foxmori 的开源双语翻译扩展，支持网页、文档、YouTube 字幕和生词复习。",
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "zip": "npm run build && node scripts/zip-dist.mjs",
     "check:upstreams": "node scripts/check-upstreams.mjs",
     "verify:package": "node scripts/verify-package.mjs",
-    "test:browser": "node scripts/e2e/acceptance.mjs && node scripts/e2e/security.mjs"
+    "test:browser": "node scripts/e2e/acceptance.mjs && node scripts/e2e/security.mjs && node scripts/e2e/regressions.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.2",

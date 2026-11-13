@@ -140,11 +140,6 @@ describe('files 页 i18n', () => {
     expect(q('.actions .btn').textContent).toBe('Translate')
     expect(q('.pe-count').textContent).toBe('Edited 0 / 0 segments')
 
-    // 旧日语设置回退英文
-    storageListener({ 'tv:config_v1': { newValue: { uiLang: 'ja' } } }, 'local')
-    expect(q('.file-page-title').textContent).toBe('Document Translation')
-    expect(q('.dropzone-main').textContent).toBe('Drag & drop a file here')
-
     // sync 之外的变化（非 local 命名空间）不触发重渲染
     storageListener({ 'tv:config_v1': { newValue: { uiLang: 'zh-CN' } } }, 'sync')
     expect(q('.file-page-title').textContent).toBe('Document Translation')

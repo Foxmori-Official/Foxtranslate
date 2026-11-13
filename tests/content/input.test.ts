@@ -295,3 +295,29 @@ describe('触发与提示（Alt+Enter / 三连空格）', () => {
     )
   })
 })
+
+it('stops replacement when the value changes during an asynchronous editor fallback',async()=>{
+ const input=makeInput('old draft')
+ const original=input.value
+ const replacing=smartReplaceText(input,'late translation',()=>input.value===original)
+ input.value='new draft'
+ expect(await replacing).toBe(false)
+ expect(input.value).toBe('new draft')
+ expect(insertTextCalls()).toHaveLength(0)
+})
+it('keeps the latest translation when input requests finish out of order',async()=>{
+ vi.spyOn(trusted,'isTrustedInteraction').mockReturnValue(true)
+ vi.spyOn(HTMLElement.prototype,'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+ const input=makeInput('first draft')
+ let first!:(value:unknown)=>void;let second!:(value:unknown)=>void
+ let calls=0
+ mockChromeSendMessage(()=>new Promise(done=>{if(calls++===0)first=done;else second=done}))
+ initInput(makeConfig('altEnter'));input.focus()
+ const trigger=()=>input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',altKey:true,bubbles:true,cancelable:true}))
+ trigger();input.value='second draft';input.dispatchEvent(new Event('input'));trigger()
+ second({ok:true,data:{text:'latest translation'}})
+ await vi.waitFor(()=>expect(input.value).toBe('latest translation'))
+ first({ok:true,data:{text:'stale translation'}})
+ await new Promise(done=>setTimeout(done,20))
+ expect(input.value).toBe('latest translation')
+})

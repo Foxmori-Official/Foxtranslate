@@ -1,5 +1,5 @@
 // 从 node_modules/pdfjs-dist 同步 PDF 运行时资产到 public/（这些第三方资产不入库，构建时自动恢复）
-// - build/pdf.worker.min.mjs → public/pdf.worker.min.js（保留 .js 扩展名保证 chrome-extension:// MIME 正确）
+// - legacy/build/pdf.worker.min.mjs → public/pdf.worker.min.js（与 parser 使用的构建一致）
 // - cmaps/ → public/pdfjs/cmaps（CJK PDF 文本提取所需）
 // - standard_fonts/ → public/pdfjs/standard_fonts
 import { cpSync, existsSync, mkdirSync, statSync } from 'node:fs'
@@ -16,7 +16,7 @@ if (!existsSync(pdfjsDist)) {
 
 const jobs = [
   {
-    from: join(pdfjsDist, 'build', 'pdf.worker.min.mjs'),
+    from: join(pdfjsDist, 'legacy', 'build', 'pdf.worker.min.mjs'),
     to: join(root, 'public', 'pdf.worker.min.js'),
   },
   {

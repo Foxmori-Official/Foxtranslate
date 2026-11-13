@@ -49,8 +49,11 @@ function paragraphText(paraXml: string): string {
 
 /** 译文文本 → w:t 内部内容（\n → <w:br/>，\t → <w:tab/>，保持 xml:space） */
 function textToRunContent(text: string): string {
-  const pieces = text.split('\n').map((line) => xmlEscape(line).replace(/\t/g, '<w:tab/>'))
-  return pieces.join('</w:t><w:br/><w:t xml:space="preserve">')
+  return text.split(/([\n\t])/).map(piece => {
+    if (piece === '\n') return '</w:t><w:br/><w:t xml:space="preserve">'
+    if (piece === '\t') return '</w:t><w:tab/><w:t xml:space="preserve">'
+    return xmlEscape(piece)
+  }).join('')
 }
 
 interface DocxParagraph {
@@ -103,8 +106,9 @@ async function parseDocx(buf: ArrayBuffer, name: string): Promise<ParsedDoc> {
 /** 仅译文：替换段落内文本为译文（保留第一个 run 的结构） */
 function replaceParagraphText(paraXml: string, translation: string): string {
   let firstT = true
-  // 先处理 <w:t>：第一个写译文，其余清空
-  let out = paraXml.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (_whole, attrs: string) => {
+  // Remove source separators before inserting the translated run content.
+  let out = paraXml.replace(/<w:(?:tab|br|cr)\b[^>]*\/>/g, '')
+  out = out.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (_whole, attrs: string) => {
     if (firstT) {
       firstT = false
       const space = attrs.includes('xml:space') ? attrs : `${attrs} xml:space="preserve"`
@@ -112,8 +116,6 @@ function replaceParagraphText(paraXml: string, translation: string): string {
     }
     return `<w:t${attrs}></w:t>`
   })
-  // 删掉原有的显式换行/制表（译文已自带）
-  out = out.replace(/<w:tab\s*\/>/g, '').replace(/<w:br\s*\/>/g, '').replace(/<w:cr\s*\/>/g, '')
   // 若段落原本没有任何 <w:t>（极端情况），在 </w:p> 前补一个 run
   if (!/<w:t\b/.test(out)) {
     out = out.replace(

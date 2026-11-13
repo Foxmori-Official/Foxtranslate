@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   UI_LANGS,
+  normalizeUiLang,
   resolveUiLang,
   t,
 } from "../../src/shared/i18n";
@@ -447,11 +448,9 @@ const EXPECTED_KEYS = [
 ];
 
 describe("界面语言解析", () => {
-  it("显式中英文覆盖浏览器语言，旧中文变体统一用简体中文", () => {
+  it("显式中英文覆盖浏览器语言", () => {
     expect(resolveUiLang("en", "zh-HK")).toBe("en");
     expect(resolveUiLang("zh-CN", "en-US")).toBe("zh-CN");
-    expect(resolveUiLang("zh-TW")).toBe("zh-CN");
-    expect(resolveUiLang("zh_Hant")).toBe("zh-CN");
   });
 
   it("跟随系统时中文系统使用中文，其他系统使用英文", () => {
@@ -463,12 +462,19 @@ describe("界面语言解析", () => {
     }
   });
 
-  it("旧界面语言迁移不影响翻译语种", () => {
-    const config = normalizeConfig({ uiLang: "ja", general: { sourceLang: "fr", targetLang: "ja" } });
+  it("界面语言不影响翻译语种", () => {
+    const config = normalizeConfig({ uiLang: "en", general: { sourceLang: "fr", targetLang: "ja" } });
     expect(config.uiLang).toBe("en");
     expect(config.general).toMatchObject({ sourceLang: "fr", targetLang: "ja" });
-    expect(normalizeConfig({ uiLang: "zh-TW" }).uiLang).toBe("zh-CN");
     expect(normalizeConfig({ uiLang: "auto" }).uiLang).toBe("auto");
+  });
+
+  it("只接受三个配置值，无效值使用默认设置", () => {
+    expect(normalizeUiLang("auto")).toBe("auto");
+    expect(normalizeUiLang("en")).toBe("en");
+    expect(normalizeUiLang("zh-CN")).toBe("zh-CN");
+    expect(normalizeUiLang("unsupported")).toBe("auto");
+    expect(normalizeConfig({ uiLang: "unsupported" }).uiLang).toBe("auto");
   });
 
   it("英文词条齐全，中文使用源码文案", () => {
