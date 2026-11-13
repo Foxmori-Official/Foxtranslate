@@ -1,6 +1,6 @@
 // DOM 候选发现与文本抽取（占位符序列化）。
 // 设计参考 KISS Translator 的占位符协议与 MTranBrowser 的两级候选策略：
-// 语义块优先，覆盖不足时用"纯文本叶子块"兜底；反向文档序取最小翻译单元防嵌套双翻。
+// 语义块优先，覆盖不足时用"纯文本叶子块"兜底；去除已被候选祖先覆盖的节点。
 import { isIdentifierLike, isMeaningfulText, normalizeText } from '../core/text'
 import { looksLikeLang } from '../core/detect'
 
@@ -196,11 +196,9 @@ export function isValidUnit(el: Element, targetLang: string): 'ok' | 'skip' | 'd
   return 'ok'
 }
 
-function coversEnough(accepted: Element[]): boolean {
-  const body = document.body
-  if (!body) return false
-  const total = (body.textContent ?? '').trim().length
-  if (total < 200) return true
+function coversEnough(root: ParentNode, accepted: Element[]): boolean {
+  const total = (root.textContent ?? '').trim().length
+  if (!total) return true
   let sum = 0
   for (const el of accepted) sum += (el.textContent ?? '').trim().length
   return sum / total >= 0.5
@@ -208,7 +206,7 @@ function coversEnough(accepted: Element[]): boolean {
 
 /**
  * 收集翻译候选。语义块优先；覆盖 <50% 时加叶子兜底。
- * 反向文档序取最小单元（内层被接受后外层弃选），返回文档序。
+ * 去除已有候选祖先的节点，避免嵌套翻译；返回文档序。
  */
 export function findCandidates(root: ParentNode, targetLang: string): Element[] {
   const semantic = new Set<Element>(
@@ -228,11 +226,12 @@ export function findCandidates(root: ParentNode, targetLang: string): Element[] 
     }
   }
 
-  if (!coversEnough(accepted)) {
-    const leafs = root.querySelectorAll(LEAF_SELECTOR)
+  if (!coversEnough(root, accepted)) {
+    const leafs = Array.from(root.querySelectorAll(LEAF_SELECTOR))
+    if (root instanceof Element && root.matches(LEAF_SELECTOR)) leafs.unshift(root)
     const leafAccepted: Element[] = []
-    for (const el of Array.from(leafs)) {
-      if (accepted.includes(el) || semantic.has(el)) continue
+    for (const el of leafs) {
+      if (semantic.has(el)) continue
       if (!el.childNodes.length) continue
       const hasDirectText = Array.from(el.childNodes).some(
         (n) => n.nodeType === Node.TEXT_NODE && (n as Text).data.trim().length >= 12,
@@ -240,20 +239,32 @@ export function findCandidates(root: ParentNode, targetLang: string): Element[] 
       if (!hasDirectText) continue
       if (isValidUnit(el, targetLang) === 'ok') leafAccepted.push(el)
     }
+    const parents = new Set(accepted)
     for (const el of leafAccepted) {
-      if (accepted.some((a) => a.contains(el))) continue
+      if (hasCandidateAncestor(el, parents, root)) continue
       accepted.push(el)
       all.push(el)
+      parents.add(el)
     }
   }
 
-  // 最小单元：若已有接受单元包含本元素，弃选本元素（保留内层）
-  const minimal = all.filter((el) => !accepted.some((a) => a !== el && a.contains(el)))
+  // 若已有候选祖先覆盖此元素，保留外层单元。
+  const candidates = new Set(accepted)
+  const minimal = all.filter(el => !hasCandidateAncestor(el, candidates, root))
   minimal.sort((a, b) => {
     const pos = a.compareDocumentPosition(b)
     return pos & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
   })
   return minimal
+}
+
+function hasCandidateAncestor(el: Element, candidates: Set<Element>, root: ParentNode): boolean {
+  if (el === root) return false
+  for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+    if (candidates.has(parent)) return true
+    if (parent === root) break
+  }
+  return false
 }
 
 /** href 协议白名单：http/https/mailto；无协议的相对地址（/path、#anchor、//host）视为安全 */

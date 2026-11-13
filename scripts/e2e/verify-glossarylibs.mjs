@@ -1,4 +1,4 @@
-// 验证词汇库 tab：zh-TW 与 en 两界面下乱码消失、计数插值正常
+// 验证词汇库 tab：zh-CN 与 en 两界面下乱码消失、计数插值正常
 const CDP = 'http://127.0.0.1:9222'
 const EXT = 'chrome-extension://obommjidieecapideeemdlcegndcdnkd'
 
@@ -47,7 +47,7 @@ async function swEval(expression) {
   return r.result?.value
 }
 
-for (const lang of ['zh-TW', 'en', 'de']) {
+for (const lang of ['zh-CN', 'en']) {
   await swEval(`(async () => {
     const KEY = 'tv:config_v1';
     const cur = (await chrome.storage.local.get(KEY))[KEY] ?? {};

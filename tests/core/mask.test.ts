@@ -20,11 +20,22 @@ const VISA = '4539148803436467';
 const ID_OK = '110101199003078937';
 
 describe('maskSensitive — 五类实体检出', () => {
-  it('检出 OpenAI/DeepSeek/Stripe sk- key', () => {
+  it('检出 OpenAI/DeepSeek sk- key', () => {
     const key = 'sk-' + 'a1B2c3D4e5F6'.repeat(2); // 24 位
     const { masked, entities } = maskSensitive(`key: ${key} done`);
     expect(entities).toEqual([{ type: 'KEY', serial: 1, value: key }]);
     expect(masked).toBe('key: __PII_KEY_1__ done');
+  });
+
+  it.each([
+    'sk-ant-api03-' + 'a'.repeat(36),
+    'hf_' + 'b'.repeat(36),
+    'sk_live_' + 'c'.repeat(32),
+    'rk_test_' + 'd'.repeat(32),
+    '-----BEGIN PRIVATE KEY-----\nRklYVFVSRQ==\n-----END PRIVATE KEY-----',
+    '-----BEGIN OPENSSH PRIVATE KEY----- RklYVFVSRQ== -----END OPENSSH PRIVATE KEY-----',
+  ])('masks a complete credential without leaving fragments', value => {
+    expect(maskSensitive('credential: ' + value)).toEqual({ masked: 'credential: __PII_KEY_1__', entities: [{ type: 'KEY', serial: 1, value }] });
   });
 
   it('检出 GitHub ghp_ / AWS AKIA / Google AIza key', () => {
@@ -113,6 +124,12 @@ describe('maskSensitive — 不误伤（宁可漏检）', () => {
     expect(maskSensitive('a 110101215003078937 b').entities).toEqual([]);
   });
 
+  it('validates real calendar dates even when the checksum is correct', () => {
+    expect(maskSensitive('11010119900231001X').entities).toEqual([]);
+    expect(maskSensitive('110101200002290018').entities).toEqual([{ type: 'IDCARD', serial: 1, value: '110101200002290018' }]);
+    expect(maskSensitive('110101190002290011').entities).toEqual([]);
+  });
+
   it('边界环视：18 位数字嵌入更长数字串不命中', () => {
     expect(maskSensitive(`x9${ID_OK}8y`).entities).toEqual([]);
   });
@@ -166,6 +183,13 @@ describe('restoreSensitive — 容错形态', () => {
     expect(restoreSensitive('写给 __PII_EMAIL_1__ 或拨 __PII_PHONE_1__', entities)).toBe(
       '写给 alice@example.com 或拨 13800138000',
     );
+  });
+
+  it('restores each source occurrence once and keeps adjacent tokens separate', () => {
+    const token = '__PII_EMAIL_1__';
+    expect(restoreSensitive(token + ' and ' + token, entities)).toBe('alice@example.com and ' + token);
+    expect(restoreSensitive(token + '__PII_PHONE_1__', entities)).toBe('alice@example.com13800138000');
+    expect(restoreSensitive('__PII_EMAIL_1__PII_PHONE_1__', entities)).toBe('alice@example.com13800138000');
   });
 
   it('容错：全小写', () => {

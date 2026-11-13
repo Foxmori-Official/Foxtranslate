@@ -17,8 +17,8 @@ import { appNavigation } from '../shared/appShell'
 import { LANGS, COMMON_LANG_CODES, langNative } from '../core/langs'
 import { getStyle, TRANSLATION_STYLES } from '../core/styles'
 import type { Config, CustomEngine, GlossaryTerm } from '../shared/config'
-import { fmt, t, resolveUiLang, UI_LANGS, type UiLangCode } from '../shared/i18n'
-import '../shared/i18n-dicts'
+import { parseHttpEndpoint } from '../shared/endpoint'
+import { fmt, t, resolveUiLang, normalizeUiLang, UI_LANGS, type UiLangCode } from '../shared/i18n'
 import { genId } from '../shared/ids'
 import type { BgRequest, BgResponse, TestEngineResult, WordItem } from '../shared/protocol'
 import { renderExpertsTab } from './tabExperts'
@@ -331,20 +331,18 @@ async function ensureEndpointPermissions(patch: Partial<Config>): Promise<boolea
   // Foxmori为内置服务（manifest 必需主机权限已覆盖），跳过；
   // 收集各自定义引擎 endpoint 与 openai/deepseek/libre 端点按需申请。
   const candidates = [
-    ...engine.customEngines.map((e) => e.endpoint),
-    engine.openai.endpoint,
-    engine.deepseek.endpoint,
-    engine.keys.libreUrl,
+    ...engine.customEngines.map(e => [e.endpoint, true] as const),
+    [engine.openai.endpoint, true] as const,
+    [engine.deepseek.endpoint, true] as const,
+    [engine.keys.libreUrl, true] as const,
+    [engine.custom.url, false] as const,
   ]
   const origins: string[] = []
-  for (const u of candidates) {
+  for (const [u, base] of candidates) {
     if (!u) continue
-    try {
-      const o = `${new URL(u).origin}/*`
-      if (!origins.includes(o)) origins.push(o)
-    } catch {
-      /* 无效地址由运行时校验拦截 */
-    }
+    const url = parseHttpEndpoint(u, base)
+    const origin = `${url.origin}/*`
+    if (!origins.includes(origin)) origins.push(origin)
   }
   for (const origin of origins) {
     if (await chrome.permissions.contains({ origins: [origin] })) continue
@@ -624,11 +622,9 @@ function renderGeneral(root: HTMLElement): void {
       buildEnumSelect<UiLangCode>(
         UI_LANGS.map((l) => ({
           value: l.code,
-          // auto 项的显示名随当前界面语言本地化（跟随系统 / Follow system / …）
           label: l.code === 'auto' ? t('general.uiLangAuto', L, '跟随系统') : l.name,
         })),
-        // 配置中的脏语言码兜底回退 auto，避免下拉空白
-        (UI_LANGS.some((l) => l.code === config.uiLang) ? config.uiLang : 'auto') as UiLangCode,
+        normalizeUiLang(config.uiLang),
         (v) => {
           void patchConfig({ uiLang: v })
         },
@@ -1127,10 +1123,16 @@ function buildCustomEngineForm(editId: string | null): HTMLElement {
     modelPickWrap.replaceChildren()
     void (async () => {
       try {
+        const url = parseHttpEndpoint(endpoint, true)
+        const origins = [`${url.origin}/*`]
+        if (!(await chrome.permissions.contains({ origins })) && !(await chrome.permissions.request({ origins }))) {
+          throw new Error(ot('opt.s8', '未授予 {p1} 访问权限，该接口将无法连通').replace('{p1}', url.origin))
+        }
         const headers: Record<string, string> = {}
         const key = keyInput.value.trim()
         if (key) headers.Authorization = `Bearer ${key}`
-        const resp = await fetch(`${endpoint}/models`, { headers })
+        url.pathname = url.pathname.replace(/\/+$/, '') + '/models'
+        const resp = await fetch(url.href, { headers, redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(config.engine.timeoutMs) })
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
         const data = (await resp.json()) as { data?: Array<{ id?: unknown }> }
         const models = (Array.isArray(data.data) ? data.data : [])

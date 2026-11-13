@@ -1,5 +1,5 @@
 /**
- * Foxtranslate 闪卡复习页 — FSRS 四键评分复习（原生 TS，无框架，10 语言 UI）。
+ * Foxtranslate 闪卡复习页 — FSRS 四键评分复习（原生 TS，无框架，中英文界面）。
  *
  * 流程：
  * 1. {kind:'getWords'} 取全部生词，本地用 toFsrsCard 转 ts-fsrs Card；

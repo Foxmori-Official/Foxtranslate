@@ -32,7 +32,7 @@ function makeWrapper(styleId: string): HTMLElement {
 export function injectTranslation(
   el: Element,
   translatedHtml: string,
-  config: Config,
+  config: Pick<Config, 'general' | 'style'>,
 ): HTMLElement {
   removeTranslation(el) // 防御：同节点重复注入前先清
   const wrapper = makeWrapper(config.style.styleId)

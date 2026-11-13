@@ -6,12 +6,14 @@
  *
  * 匹配规则：
  * - src 长度降序（先长后短），重叠时长术语抢占区间，短术语只补长术语没覆盖的；
- * - 边界感知：术语两端紧邻字母/数字时不匹配（"cat" 不命中 "category"、"concatenate"）；
+ * - 有词界的文字保护字母、数字和下划线；中日韩文字允许连续匹配（如 Transformer架构）；
  * - 大小写不敏感（"Server" 命中 "server"）；
- * - 替换从后往前进行，避免前置替换导致后续偏移失效。
+ * - 编译后一次扫描原文，按命中区间生成占位符。
  *
  * 本模块为 core 纯逻辑：零浏览器 API、零外部依赖。
  */
+
+import { restorePlaceholders } from './placeholders'
 
 export interface GlossaryTerm {
   src: string
@@ -30,14 +32,20 @@ export interface ApplyGlossaryResult {
   entities: GlossaryEntity[]
 }
 
-/** 转义正则特殊字符 */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const CJK = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}]/u
+const WORD = /[\p{L}\p{M}\p{N}_]/u
+
+function needsBoundary(char: string | undefined): boolean {
+  return !!char && WORD.test(char) && !CJK.test(char)
 }
 
-// 边界感知：术语两端是字母（任意文字系统）或数字时不匹配
-const BOUNDARY_LOOKBEHIND = String.raw`(?<![\p{L}\p{N}])`
-const BOUNDARY_LOOKAHEAD = String.raw`(?![\p{L}\p{N}])`
+// Fold one code point at a time, so casing cannot change the original match positions.
+function fold(char: string): string {
+  if (char.charCodeAt(0) <= 127) return char.toLowerCase()
+  if (char === 'ı' || char === 'İ') return char
+  const upper = char.toUpperCase()
+  return upper.length === char.length ? upper.toLowerCase() : char.toLowerCase()
+}
 
 function placeholderFor(serial: number): string {
   return `__GLOSSARY_${serial}__`
@@ -46,61 +54,118 @@ function placeholderFor(serial: number): string {
 interface Span {
   start: number
   end: number
+  term: Term
+}
+
+interface Term {
+  width: number
+  rank: number
+  left: boolean
+  right: boolean
   dst: string
 }
 
-/**
- * 注入术语占位符。返回 { text, entities }；entities 为空数组表示没有命中，调用方可跳过 restore。
- * 术语按 src 长度降序扫描，同一区间只归最长的术语（先到先得）；序号按原文出现顺序分配。
- */
-export function applyGlossary(text: string, terms: GlossaryTerm[]): ApplyGlossaryResult {
-  // 去重 + 去空 src（大小写不敏感）；长度降序保证重叠时长术语优先
-  const seen = new Set<string>()
-  const sorted: GlossaryTerm[] = []
-  for (const t of terms) {
-    const src = t.src
-    if (!src) continue
-    const key = src.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    sorted.push({ src, dst: t.dst })
+interface Node {
+  children: Map<string, Node>
+  fail: Node | null
+  output?: Node
+  term?: Term
+}
+
+export interface CompiledGlossary {
+  readonly signature: string
+  apply(text: string): ApplyGlossaryResult
+}
+
+const compiled = new Map<string, CompiledGlossary>()
+const MAX_COMPILED_TABLES = 4
+
+/** Aho–Corasick trie. Suffix links reuse matches without copying every suffix into each node. */
+export function compileGlossary(terms: readonly GlossaryTerm[]): CompiledGlossary {
+  const signature = glossarySignature(terms)
+  const previous = compiled.get(signature)
+  if (previous) {
+    compiled.delete(signature)
+    compiled.set(signature, previous)
+    return previous
   }
-  sorted.sort((a, b) => b.src.length - a.src.length)
-  if (!text || sorted.length === 0) return { text, entities: [] }
-
-  const spans: Span[] = []
-  const overlaps = (s: number, e: number): boolean => spans.some((x) => s < x.end && e > x.start)
-
-  for (const t of sorted) {
-    // 边界感知 + 大小写不敏感；模块内新建正则，不共享 lastIndex
-    const re = new RegExp(
-      BOUNDARY_LOOKBEHIND + escapeRegExp(t.src) + BOUNDARY_LOOKAHEAD,
-      'giu',
-    )
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      if (m[0].length === 0) {
-        re.lastIndex++ // 防御零宽匹配死循环
-        continue
+  const root: Node = { children: new Map(), fail: null }
+  for (const [rank, { src, dst }] of terms.entries()) {
+    if (!src) continue
+    const chars = Array.from(src)
+    let node = root
+    for (const char of chars) {
+      const key = fold(char)
+      let child = node.children.get(key)
+      if (!child) {
+        child = { children: new Map(), fail: null }
+        node.children.set(key, child)
       }
-      const start = m.index
-      const end = start + m[0].length
-      if (overlaps(start, end)) continue
-      spans.push({ start, end, dst: t.dst })
+      node = child
+    }
+    node.term ??= { width: chars.length, rank, left: needsBoundary(chars[0]), right: needsBoundary(chars.at(-1)), dst }
+  }
+  const queue = [...root.children.values()]
+  for (const node of queue) node.fail = root
+  for (let i = 0; i < queue.length; i++) {
+    const parent = queue[i]
+    for (const [char, child] of parent.children) {
+      let fallback = parent.fail
+      while (fallback && !fallback.children.has(char)) fallback = fallback.fail
+      child.fail = fallback?.children.get(char) ?? root
+      child.output = child.fail.term ? child.fail : child.fail.output
+      queue.push(child)
     }
   }
-  if (spans.length === 0) return { text, entities: [] }
 
-  // 序号按出现顺序分配；替换从后往前，避免偏移失效
-  spans.sort((a, b) => a.start - b.start)
-  const entities: GlossaryEntity[] = spans.map((s, i) => ({ serial: i + 1, value: s.dst }))
+  const matcher = { signature, apply: (text: string) => applyCompiled(text, root) }
+  compiled.set(signature, matcher)
+  if (compiled.size > MAX_COMPILED_TABLES) compiled.delete(compiled.keys().next().value!)
+  return matcher
+}
 
-  let out = text
-  for (let i = spans.length - 1; i >= 0; i--) {
-    const s = spans[i]
-    out = out.slice(0, s.start) + placeholderFor(i + 1) + out.slice(s.end)
+function applyCompiled(text: string, root: Node): ApplyGlossaryResult {
+  if (!text || !root.children.size) return { text, entities: [] }
+  const chars = Array.from(text)
+  const spans: Span[] = []
+  let node = root
+  for (let i = 0; i < chars.length; i++) {
+    const key = fold(chars[i])
+    while (node !== root && !node.children.has(key)) node = node.fail ?? root
+    node = node.children.get(key) ?? root
+    for (let match: Node | undefined = node.term ? node : node.output; match; match = match.output) {
+      const term = match.term!
+      const end = i + 1
+      const start = end - term.width
+      if ((term.left && needsBoundary(chars[start - 1])) || (term.right && needsBoundary(chars[end]))) continue
+      spans.push({ start, end, term })
+    }
   }
-  return { text: out, entities }
+  if (!spans.length) return { text, entities: [] }
+
+  // Resolve overlaps by length globally, including a longer term starting later in the source.
+  spans.sort((a, b) => b.term.width - a.term.width || a.term.rank - b.term.rank || a.start - b.start)
+  const occupied = new Uint8Array(chars.length)
+  const chosen: Span[] = []
+  for (const span of spans) {
+    if (occupied.subarray(span.start, span.end).includes(1)) continue
+    occupied.fill(1, span.start, span.end)
+    chosen.push(span)
+  }
+  chosen.sort((a, b) => a.start - b.start)
+  const entities = chosen.map(({ term }, i) => ({ serial: i + 1, value: term.dst }))
+  const parts: string[] = []
+  let cursor = 0
+  for (const [i, { start, end }] of chosen.entries()) {
+    parts.push(chars.slice(cursor, start).join(''), placeholderFor(i + 1))
+    cursor = end
+  }
+  parts.push(chars.slice(cursor).join(''))
+  return { text: parts.join(''), entities }
+}
+
+export function applyGlossary(text: string, terms: GlossaryTerm[]): ApplyGlossaryResult {
+  return text && terms.length ? compileGlossary(terms).apply(text) : { text, entities: [] }
 }
 
 /**
@@ -109,19 +174,7 @@ export function applyGlossary(text: string, terms: GlossaryTerm[]): ApplyGlossar
  * 找不到的占位符跳过（该实体在译文中缺失，只影响完整性不泄露信息）。
  */
 export function restoreGlossary(text: string, entities: GlossaryEntity[]): string {
-  if (!text || entities.length === 0) return text
-  let out = text
-  // 序号降序还原，配合 (?!\d) 避免 _1 误吞 _11
-  const ordered = [...entities].sort((a, b) => b.serial - a.serial)
-  for (const e of ordered) {
-    const re = new RegExp(
-      '(?:_\\s*){1,4}GLOSSARY[_\\s]+' + e.serial + '(?!\\d)(?:\\s*_{1}){0,4}',
-      'gi',
-    )
-    // 函数回调：value 原样返回，防止其中 `$&` 等被当作替换串特殊序列解释
-    out = out.replace(re, () => e.value)
-  }
-  return out
+  return restorePlaceholders(text, [], entities)
 }
 
 /**
@@ -133,7 +186,7 @@ export function glossaryPromptBlock(terms: GlossaryTerm[]): string {
   return terms.map((t) => `- ${t.src} → ${t.dst}`).join('\n')
 }
 
-/** 术语表签名（src=dst; 拼接），供缓存 key 在术语表变更时自动失效。空表返回空串。 */
-export function glossarySignature(terms: GlossaryTerm[]): string {
-  return terms.map((t) => `${t.src}=${t.dst};`).join('')
+/** Preserve term order and encode values unambiguously, including literal '=' and ';'. */
+export function glossarySignature(terms: readonly GlossaryTerm[]): string {
+  return terms.length ? JSON.stringify(terms.map(({ src, dst }) => [src, dst])) : ''
 }

@@ -1,39 +1,55 @@
 // background 入口：消息总线、快捷键命令、右键菜单、生词本 FSRS 评分。
 import { FSRS } from 'ts-fsrs'
-import { assertExtensionPage, getFoxmoriAccount, createFoxmoriKey, openFoxmoriLogin } from './foxmoriAccount'
+import { getFoxmoriAccount, createFoxmoriKey, openFoxmoriLogin } from './foxmoriAccount'
+import { assertMessageAccess, isExtensionPage } from './messagePolicy'
 import { fetchProviderModels } from './models'
-import { mergeSubtitlePreferences } from '../shared/config'
+import { mergeSubtitlePreferences, normalizeConfig } from '../shared/config'
+import { toPageConfig } from '../shared/pageConfig'
 import { translate, translateTexts, detectLang, aiAssist, aiChat } from './translate'
 import { compareTranslate } from './compare'
 import { extractTermsWithAI } from './glossaryLibs'
 import { ENGINES, syncCustomEngines } from './engines'
-import { getConfig, setConfig, updateConfig, incrementTranslatedChars, getWords, addWord, deleteWord, updateWord, toFsrsCard, toWordCard, watchConfig } from '../shared/store'
-import { ok, err, type BgRequest, type BgResponse, type StatsResult, type TestEngineResult, type WordItem } from '../shared/protocol'
+import { getConfig, setConfig, updateConfig, invalidateConfigSnapshot, incrementTranslatedChars, getWords, addWord, deleteWord, updateWord, toFsrsCard, toWordCard } from '../shared/store'
+import { ok, err, type BgRequest, type BgResponse, type ContentRequest, type StatsResult, type TestEngineResult, type WordItem } from '../shared/protocol'
 
 const fsrs = new FSRS({})
 
-// SW 启动：用持久化配置重建 custom:<id> 动态引擎注册表
-void getConfig().then(syncCustomEngines)
+// Website content scripts get a safe projection via messages, never raw storage or credentials.
+const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
+void storageReady.catch(error => console.error('Could not restrict extension storage', error))
 
-// 配置变化（options 页保存）→ 同步重建动态引擎
-watchConfig(syncCustomEngines)
+let notifications = Promise.resolve()
+function broadcast(message: ContentRequest): void {
+  notifications = notifications.catch(() => {}).then(async () => {
+    const tabs = await chrome.tabs.query({})
+    await Promise.allSettled(tabs.flatMap(tab => tab.id == null ? [] : [chrome.tabs.sendMessage(tab.id, message, { frameId: 0 })]))
+  })
+  void notifications.catch(() => {})
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return
+  if (changes['tv:config_v1']) {
+    invalidateConfigSnapshot()
+    broadcast({ kind: 'configChanged', config: toPageConfig(normalizeConfig(changes['tv:config_v1'].newValue)) })
+  }
+  if (changes['tv:words_v1']) broadcast({ kind: 'wordsChanged' })
+})
 
 async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Promise<unknown> {
+  assertMessageAccess(msg, sender)
+  await storageReady
   const config = await getConfig()
   syncCustomEngines(config)
   switch (msg.kind) {
     case 'foxmoriLogin':
-      assertExtensionPage(sender)
       await openFoxmoriLogin()
       return null
     case 'foxmoriAccount':
-      assertExtensionPage(sender)
       return getFoxmoriAccount()
     case 'foxmoriCreateKey':
-      assertExtensionPage(sender)
       return createFoxmoriKey(msg.groupId, msg.accountId)
     case 'fetchModels':
-      assertExtensionPage(sender)
       return fetchProviderModels(config, msg.provider)
     case 'translate': {
       const { targetLang, sourceLang, context, immediate, scope, provider } = msg
@@ -68,24 +84,30 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       return { terms: await extractTermsWithAI(msg.text, msg.targetLang, config) }
     case 'getConfig':
       return config
+    case 'getPageConfig':
+      return toPageConfig(config)
     case 'setConfig': {
       const next = await setConfig(msg.patch)
       return next
     }
     case 'setSubtitlePreferences': {
-      if (!sender?.url?.startsWith('https://www.youtube.com/')) assertExtensionPage(sender)
       const next = await updateConfig(current => ({
         subtitles: mergeSubtitlePreferences(current.subtitles, msg.patch),
       }))
       return next.subtitles
     }
-    case 'saveWord':
-      return addWord(msg)
+    case 'saveWord': {
+      const word = await addWord(msg)
+      return isExtensionPage(sender) ? word : null
+    }
     case 'deleteWord':
       await deleteWord(msg.id)
       return null
     case 'getWords':
       return getWords()
+    case 'getHighlights':
+      return config.learning.enabled && config.learning.highlightOnPage
+        ? (await getWords()).map(({ word, translation }) => ({ word, translation })) : []
     case 'reviewGrade': {
       const words = await getWords()
       const word = words.find((w) => w.id === msg.wordId)
@@ -110,7 +132,6 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender): Pr
       return stats
     }
     case 'testEngine': {
-      if (msg.provider !== undefined) assertExtensionPage(sender)
       const engine = msg.provider ?? config.engine.provider
       const testConfig = { ...config, engine: { ...config.engine, provider: engine } }
       const started = Date.now()

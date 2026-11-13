@@ -4,12 +4,11 @@
  * zh-CN 直接回退中文原文；其余语言查 shared/i18n 注册表。
  */
 import { t, resolveUiLang } from '../shared/i18n'
-import '../shared/i18n-dicts' // 注册 7 语言通用字典（副作用导入，否则 t() 查不到回退中文）
 import type { Config } from '../shared/config'
 
 let lang: string = 'zh-CN'
 
-export function setContentUiLang(config: Config): void {
+export function setContentUiLang(config: Pick<Config, 'uiLang'>): void {
   lang = resolveUiLang(config.uiLang)
 }
 

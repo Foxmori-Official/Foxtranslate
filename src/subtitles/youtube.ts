@@ -1,4 +1,5 @@
-import { DEFAULT_CONFIG, normalizeConfig, type SubtitlePatch, type SubtitlePreferences } from '../shared/config'
+import { DEFAULT_CONFIG, type SubtitlePatch, type SubtitlePreferences } from '../shared/config'
+import { watchPageConfig, type PageConfig } from '../shared/pageConfig'
 import { matchHotkey } from '../shared/hotkeys'
 import { featureCopy } from '../shared/featureCopy'
 import { isAiProvider } from '../shared/engines'
@@ -103,8 +104,7 @@ async function savePreferences(patch: SubtitlePatch): Promise<void> {
   applyPreferences(result.data)
 }
 
-function applyConfiguration(raw: unknown): void {
-  const config = normalizeConfig(raw)
+function applyConfiguration(config: PageConfig): void {
   if (config.general.targetLang !== targetLang) {
     targetLang = config.general.targetLang
     teardownSession()
@@ -123,12 +123,14 @@ export function startYouTube(): void {
 }
 
 async function bootstrap(): Promise<void> {
-  const config = await getSubtitlesConfig()
-  if (config) applyConfiguration(config)
-  else updateControl('error')
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes['tv:config_v1']) applyConfiguration(changes['tv:config_v1'].newValue)
+  let received = false
+  watchPageConfig(config => {
+    received = true
+    applyConfiguration(config)
   })
+  const config = await getSubtitlesConfig()
+  if (!received && config) applyConfiguration(config)
+  else if (!received) updateControl('error')
   window.addEventListener('yt-navigate-finish', onNavigate)
   document.addEventListener('yt-navigate-start', onNavigateStart)
   window.addEventListener('message', onNativeTimedtext)

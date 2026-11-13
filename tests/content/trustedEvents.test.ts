@@ -4,6 +4,7 @@ import { isTrustedInteraction, protectExtensionUi } from '../../src/shared/trust
 import { initSelection } from '../../src/content/selection'
 import { initInput } from '../../src/content/input'
 import { DEFAULT_CONFIG } from '../../src/shared/config'
+import { DEFAULT_PAGE_CONFIG } from '../../src/shared/pageConfig'
 
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
@@ -45,7 +46,7 @@ it('does not translate script-created selections or hidden input synthetic short
   input.hidden = true
   input.value = 'synthetic input'
   document.body.append(paragraph, input)
-  initSelection(structuredClone(DEFAULT_CONFIG))
+  initSelection(structuredClone(DEFAULT_PAGE_CONFIG))
   initInput(structuredClone(DEFAULT_CONFIG))
   window.getSelection()!.selectAllChildren(paragraph)
   document.dispatchEvent(new Event('selectionchange'))

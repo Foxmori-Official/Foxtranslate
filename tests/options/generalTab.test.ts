@@ -81,7 +81,7 @@ function cardByTitle(title: string): HTMLElement {
 }
 
 describe("通用标签页", () => {
-  it("渲染：无源语言卡片，有界面语言下拉（10 项，当前 zh-CN）", async () => {
+  it("渲染：无源语言卡片，有界面语言下拉（当前 zh-CN）", async () => {
     const cfg = structuredClone(DEFAULT_CONFIG);
     cfg.uiLang = 'zh-CN'; // 测试断言中文界面：显式中文（默认 auto 在测试环境解析为英文）
     cfg.uiLang = 'zh-CN';
@@ -100,14 +100,7 @@ describe("通用标签页", () => {
     expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
       "跟随系统",
       "English",
-      "Deutsch",
-      "Español",
-      "Français",
-      "Português (Brasil)",
-      "日本語",
       "简体中文",
-      "繁體中文",
-      "한국어",
     ]);
     expect(sel.value).toBe("zh-CN");
   });

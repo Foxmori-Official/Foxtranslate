@@ -123,6 +123,8 @@ export function createOpenAICompatEngine(opts: OpenAICompatOpts): Engine {
     const base = opts.getEndpoint(ctx).replace(/\/+$/, '')
     const res = await getFetch()(`${base}/chat/completions`, {
       method: 'POST',
+      redirect: 'error',
+      credentials: 'omit',
       headers: {
         // 自定义头在前，强制头（Authorization/Content-Type）在后不可被覆盖
         ...opts.getHeaders?.(ctx),

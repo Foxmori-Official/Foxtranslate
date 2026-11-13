@@ -4,7 +4,7 @@
  * - 三步导航：下一步 / 上一步 / 完成 在三个步骤卡片间正确切换，进度条当前步高亮
  * - 设置即改即存：改目标语言 / 显示模式 / 翻译引擎后 stub 立即收到 {kind:'setConfig',patch}
  * - 完成按钮写入 onboardingCompleted: true 并显示完成态
- * - i18n：uiLang=en / ja 文案正确；storage tv:config_v1 中 uiLang 变化时即时重渲染
+ * - i18n：中英文文案正确；storage tv:config_v1 中 uiLang 变化时即时重渲染
  * - Step 3 选中示例文本后触发 {kind:'translate'} 消息并显示译文
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -232,11 +232,11 @@ describe('onboarding 页', () => {
     )
   })
 
-  it('i18n：uiLang=ja 时文案为日文，storage 中 uiLang 变化时即时重渲染', async () => {
-    const { storageListener } = await boot('ja')
+  it('i18n：旧繁体中文界面设置归到简体中文，storage 中 uiLang 变化时即时重渲染', async () => {
+    const { storageListener } = await boot('zh-TW')
 
-    expect(q('.ob-step-title').textContent).toBe('Foxtranslate へようこそ')
-    expect(q('.ob-next').textContent).toBe('次へ')
+    expect(q('.ob-step-title').textContent).toBe('欢迎使用 Foxtranslate')
+    expect(q('.ob-next').textContent).toBe('下一步')
     if (!storageListener) throw new Error('storage.onChanged 监听未注册')
 
     // 切到英文：当前步立即按英文重渲染
@@ -244,9 +244,9 @@ describe('onboarding 页', () => {
     expect(q('.ob-step-title').textContent).toBe('Welcome to Foxtranslate')
     expect(q('.ob-next').textContent).toBe('Next')
 
-    // 切回日文
-    storageListener({ 'tv:config_v1': { newValue: { uiLang: 'ja' } } }, 'local')
-    expect(q('.ob-step-title').textContent).toBe('Foxtranslate へようこそ')
+    // 切回中文
+    storageListener({ 'tv:config_v1': { newValue: { uiLang: 'zh-CN' } } }, 'local')
+    expect(q('.ob-step-title').textContent).toBe('欢迎使用 Foxtranslate')
   })
 
   it('选中示例文本后触发 translate 消息并显示译文；清空选择回到引导提示', async () => {

@@ -1,4 +1,5 @@
 import type { Config, SubtitlePatch } from './config'
+import type { PageConfig } from './pageConfig'
 
 // ===== content / popup → background =====
 export type BgRequest =
@@ -10,11 +11,13 @@ export type BgRequest =
   | { kind: 'extractTerms'; text: string; targetLang: string }
   | { kind: 'compareTranslate'; text: string; targetLang: string; engineIds: string[] }
   | { kind: 'getConfig' }
+  | { kind: 'getPageConfig' }
   | { kind: 'setConfig'; patch: Partial<Config> }
   | { kind: 'setSubtitlePreferences'; patch: SubtitlePatch }
   | { kind: 'saveWord'; word: string; context?: string; translation?: string; pageUrl?: string; pageTitle?: string }
   | { kind: 'deleteWord'; id: string }
   | { kind: 'getWords' }
+  | { kind: 'getHighlights' }
   | { kind: 'reviewGrade'; wordId: string; rating: 1 | 2 | 3 | 4 }
   | { kind: 'getStats' }
   | { kind: 'testEngine'; provider?: string }
@@ -77,6 +80,8 @@ export interface StatsResult {
   translatedChars: number
 }
 
+export type HighlightWord = Pick<WordItem, 'word' | 'translation'>
+
 /** kind:'testEngine' 的 data：用指定引擎翻译 "Hello" 的连通性测试结果。失败原话在 error。 */
 export interface TestEngineResult {
   ok: boolean
@@ -93,7 +98,8 @@ export interface TestEngineResult {
 export type ContentRequest =
   | { kind: 'togglePage' }
   | { kind: 'pageState' }
-  | { kind: 'configChanged'; config: Config }
+  | { kind: 'configChanged'; config: PageConfig }
+  | { kind: 'wordsChanged' }
 
 export interface PageStateResult {
   active: boolean

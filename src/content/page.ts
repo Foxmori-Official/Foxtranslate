@@ -3,13 +3,14 @@
 import { findCandidates, extractText, buildTranslationHtml } from './dom'
 import { injectTranslation, removeAllTranslations, showLoading, showError, clearStatus } from './render'
 import { normalizeText, sameText, splitLongText } from '../core/text'
-import type { Config } from '../shared/config'
+import type { PageConfig } from '../shared/pageConfig'
 import type { BgResponse, TranslateResult } from '../shared/protocol'
 
 const MAX_CONCURRENT = 4
-const IO_ROOT_MARGIN = '1000px 0px'
+const IO_ROOT_MARGIN = '400px 0px'
 const LONG_TEXT_SPLIT = 1500
 const MO_DEBOUNCE_MS = 120
+const SCAN_ROOTS_PER_SLICE = 8
 const CTX_DESC_MAX = 200
 const CTX_BODY_MAX = 400
 const CTX_TOTAL_MAX = 800
@@ -46,7 +47,9 @@ export function resetPageContext(): void {
   pageContextCache = null
 }
 
-async function requestTranslate(text: string, config: Config): Promise<TranslateResult> {
+type TranslationSettings = Pick<PageConfig, 'general' | 'style' | 'contextAware'>
+
+async function requestTranslate(text: string, config: TranslationSettings): Promise<TranslateResult> {
   const resp = (await chrome.runtime.sendMessage({
     kind: 'translate',
     text,
@@ -60,7 +63,7 @@ async function requestTranslate(text: string, config: Config): Promise<Translate
 }
 
 /** 长文按句切分后顺序翻译拼接 */
-async function translateLongText(text: string, config: Config): Promise<string> {
+async function translateLongText(text: string, config: TranslationSettings, signal?: AbortSignal): Promise<string> {
   if (text.length <= LONG_TEXT_SPLIT) {
     const r = await requestTranslate(text, config)
     return r.text
@@ -68,6 +71,7 @@ async function translateLongText(text: string, config: Config): Promise<string> 
   const parts = splitLongText(text, LONG_TEXT_SPLIT)
   const out: string[] = []
   for (const part of parts) {
+    signal?.throwIfAborted()
     const r = await requestTranslate(part, config)
     out.push(r.text)
   }
@@ -75,13 +79,15 @@ async function translateLongText(text: string, config: Config): Promise<string> 
 }
 
 /** 立即翻译单个元素（悬停翻译复用）。返回是否成功注入。 */
-export async function translateElement(el: Element, config: Config): Promise<boolean> {
+export async function translateElement(el: Element, config: TranslationSettings, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted || !el.isConnected) return false
   if (el.hasAttribute('data-tv-translated')) return true
   const extracted = extractText(el)
   if (!extracted) return false
   showLoading(el)
   try {
-    const translated = await translateLongText(extracted.text, config)
+    const translated = await translateLongText(extracted.text, config, signal)
+    if (signal?.aborted || !el.isConnected) return false
     clearStatus(el)
     if (sameText(translated, extracted.text)) {
       el.setAttribute('data-tv-translated', 'skipped')
@@ -90,31 +96,36 @@ export async function translateElement(el: Element, config: Config): Promise<boo
     injectTranslation(el, buildTranslationHtml(translated, extracted.placeholders), config)
     return true
   } catch (err) {
+    if (signal?.aborted || !el.isConnected) return false
     showError(el, {
       message: err instanceof Error ? err.message : String(err),
-      onRetry: () => void translateElement(el, config),
+      onRetry: () => void translateElement(el, config, signal),
     })
     return false
   }
 }
 
 export class PageTranslator {
-  private getConfig: () => Config
+  private getConfig: () => TranslationSettings
   private io: IntersectionObserver | null = null
   private mo: MutationObserver | null = null
   private pending = new Set<Element>()
+  private observed = new Set<Element>()
+  private working = new WeakMap<Element, AbortSignal>()
+  private scanRoots = new Set<Element>()
   private running = 0
   private moTimer: ReturnType<typeof setTimeout> | null = null
-  private activeFlag = false
+  private scanIdle: number | null = null
+  private session: AbortController | null = null
   translatedCount = 0
   failedCount = 0
 
-  constructor(getConfig: () => Config) {
+  constructor(getConfig: () => TranslationSettings) {
     this.getConfig = getConfig
   }
 
   isActive(): boolean {
-    return this.activeFlag
+    return this.session !== null
   }
 
   counts(): { translatedCount: number; failedCount: number } {
@@ -123,7 +134,7 @@ export class PageTranslator {
 
   /** 切换整页翻译状态，返回切换后状态 */
   async toggle(): Promise<boolean> {
-    if (this.activeFlag) {
+    if (this.session) {
       this.deactivate()
       return false
     }
@@ -132,105 +143,137 @@ export class PageTranslator {
   }
 
   private activate() {
-    this.activeFlag = true
+    this.session = new AbortController()
     this.translatedCount = 0
     this.failedCount = 0
-    this.scan(document.body)
+    resetPageContext()
     this.io = new IntersectionObserver(
-      (entries) => {
+      (entries, observer) => {
+        if (observer !== this.io) return
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue
-          const el = entry.target as Element
-          this.io?.unobserve(el)
-          this.enqueue(el)
+          const el = entry.target
+          if (!el.isConnected) this.unobserve(el)
+          else if (entry.isIntersecting) this.pending.add(el)
+          else this.pending.delete(el)
         }
+        this.drain()
       },
       { rootMargin: IO_ROOT_MARGIN, threshold: 0 },
     )
+    this.scan(document.body)
     this.mo = new MutationObserver((records) => this.onMutations(records))
     this.mo.observe(document.body, { childList: true, subtree: true, characterData: true })
   }
 
   private deactivate() {
-    this.activeFlag = false
+    this.session?.abort()
+    this.session = null
     this.io?.disconnect()
     this.io = null
     this.mo?.disconnect()
     this.mo = null
     if (this.moTimer) clearTimeout(this.moTimer)
+    this.moTimer = null
+    if (this.scanIdle !== null) window.cancelIdleCallback(this.scanIdle)
+    this.scanIdle = null
+    this.scanRoots.clear()
+    this.observed.clear()
     this.pending.clear()
-    this.running = 0
-    document.querySelectorAll('[data-tv-translated]').forEach((el) => el.removeAttribute('data-tv-translated'))
     removeAllTranslations()
   }
 
   /** 扫描根节点下的候选并交给 IO/队列 */
   scan(root: ParentNode) {
-    if (!this.activeFlag || !root) return
+    if (!this.session || !this.io) return
     const config = this.getConfig()
     const candidates = findCandidates(root, config.general.targetLang)
     for (const el of candidates) {
-      if (el.hasAttribute('data-tv-queued')) continue
-      el.setAttribute('data-tv-queued', '1')
-      if (this.io) this.io.observe(el)
-      else this.enqueue(el)
+      if (this.observed.has(el) || this.working.get(el) === this.session.signal) continue
+      this.observed.add(el)
+      this.io.observe(el)
     }
   }
 
+  private queueMutationRoot(el: Element) {
+    if (!el.isConnected) return
+    // A streamed inline edit must rescan its paragraph, not only the text's immediate span.
+    const root = el.closest('p,li,blockquote,td,th,dd,dt,figcaption,summary,h1,h2,h3,h4,h5,h6') ?? el
+    this.scanRoots.add(root)
+  }
+
   private onMutations(records: MutationRecord[]) {
-    const added: Element[] = []
+    let removed = false
     for (const r of records) {
       const target = r.target
       if (target instanceof Element && target.closest('[data-tv-owned], tv-translation')) continue
       if (r.type === 'characterData') {
         const parent = target.parentElement
-        if (parent) added.push(parent)
+        if (parent && !parent.closest('[data-tv-owned], tv-translation')) this.queueMutationRoot(parent)
         continue
       }
       for (const node of Array.from(r.addedNodes)) {
         if (node instanceof Element) {
           if (node.hasAttribute('data-tv-owned') || node.tagName === 'TV-TRANSLATION') continue
-          added.push(node)
+          this.queueMutationRoot(node)
+        } else if (node.nodeType === Node.TEXT_NODE && target instanceof Element) {
+          this.queueMutationRoot(target)
         }
       }
+      removed ||= Array.from(r.removedNodes).some(node => node instanceof Element && !node.hasAttribute('data-tv-owned'))
     }
-    if (!added.length) return
-    if (this.moTimer) clearTimeout(this.moTimer)
+    if (removed) for (const el of this.observed) if (!el.isConnected) this.unobserve(el)
+    if (!this.scanRoots.size || this.moTimer || this.scanIdle !== null) return
     this.moTimer = setTimeout(() => {
-      if (!this.activeFlag) return
-      for (const el of added) {
-        if (el.isConnected) this.scan(el)
-      }
+      this.moTimer = null
+      this.scheduleScan()
     }, MO_DEBOUNCE_MS)
   }
 
-  private enqueue(el: Element) {
-    el.removeAttribute('data-tv-queued')
-    if (el.hasAttribute('data-tv-translated') || !el.isConnected) return
-    if (this.running >= MAX_CONCURRENT) {
-      this.pending.add(el)
-      return
-    }
-    void this.process(el)
+  private scheduleScan() {
+    this.scanIdle = window.requestIdleCallback(deadline => {
+      this.scanIdle = null
+      if (!this.session) return
+      // Ignore descendants covered by a queued parent, including updates from earlier observer callbacks.
+      for (const el of this.scanRoots) {
+        for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+          if (this.scanRoots.has(parent)) { this.scanRoots.delete(el); break }
+        }
+      }
+      let scanned = 0
+      for (const el of this.scanRoots) {
+        this.scanRoots.delete(el)
+        if (el.isConnected) this.scan(el)
+        if (++scanned >= SCAN_ROOTS_PER_SLICE || deadline.timeRemaining() < 2) break
+      }
+      if (this.scanRoots.size) this.scheduleScan()
+    }, { timeout: 250 })
+  }
+
+  private unobserve(el: Element) {
+    this.pending.delete(el)
+    this.observed.delete(el)
+    this.io?.unobserve(el)
   }
 
   private drain() {
-    while (this.running < MAX_CONCURRENT && this.pending.size) {
+    while (this.session && this.running < MAX_CONCURRENT && this.pending.size) {
       const el = this.pending.values().next().value as Element
-      this.pending.delete(el)
-      if (!el.isConnected) continue
-      void this.process(el)
+      this.unobserve(el)
+      if (!el.isConnected || el.hasAttribute('data-tv-translated')) continue
+      void this.process(el, this.session.signal)
     }
   }
 
-  private async process(el: Element) {
+  private async process(el: Element, signal: AbortSignal) {
     this.running += 1
+    this.working.set(el, signal)
     try {
-      const before = el.hasAttribute('data-tv-translated')
-      const ok = await translateElement(el, this.getConfig())
-      if (ok && !before) this.translatedCount += 1
-      if (!ok) this.failedCount += 1
+      const ok = await translateElement(el, this.getConfig(), signal)
+      if (signal.aborted) return
+      if (ok) this.translatedCount += 1
+      else this.failedCount += 1
     } finally {
+      if (this.working.get(el) === signal) this.working.delete(el)
       this.running -= 1
       this.drain()
     }

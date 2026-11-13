@@ -1,5 +1,6 @@
 // Config 契约：单一对象 + 读时归一化（normalizeConfig 白名单逐 key 拷贝，等价于隐式 schema 迁移）
 import { BUILTIN_EXPERTS, type ExpertPreset } from '../core/experts'
+import { normalizeUiLang } from './i18n'
 
 export type { ExpertPreset }
 export interface GlossaryTerm { src: string; dst: string }
@@ -194,6 +195,7 @@ function merge<T>(defaults: T, raw: unknown): T {
 export function normalizeConfig(raw: unknown): Config {
   const stored = isObj(raw) ? raw : {}
   const config = merge(DEFAULT_CONFIG, stored)
+  config.uiLang = normalizeUiLang(config.uiLang)
   const storedLibraries = stored.glossaryLibs
   // Library IDs are dynamic, so the default shape cannot enumerate their switches.
   if (isObj(storedLibraries) && isObj(storedLibraries.enabled)) {

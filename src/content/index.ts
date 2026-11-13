@@ -10,8 +10,8 @@ import { initCompareWindow, toggleCompareWindow } from './compareWindow'
 import { isTrustedInteraction } from '../shared/trustedEvents'
 import { applyHighlights } from './highlight'
 import { detectPageLang } from '../core/detect'
-import { DEFAULT_CONFIG, normalizeConfig, type Config } from '../shared/config'
-import type { BgRequest, BgResponse, ContentRequest, PageStateResult } from '../shared/protocol'
+import { DEFAULT_PAGE_CONFIG, getPageConfig, isBackgroundSender, watchPageConfig, type PageConfig } from '../shared/pageConfig'
+import type { BgRequest, ContentRequest, PageStateResult } from '../shared/protocol'
 import { setContentUiLang } from './uiLang'
 import { initFoxmoriAccountBridge } from './foxmoriAccount'
 
@@ -20,11 +20,13 @@ initFoxmoriAccountBridge()
 const w = window as unknown as { __TV_CONTENT_INJECTED__?: boolean }
 if (!w.__TV_CONTENT_INJECTED__) {
   w.__TV_CONTENT_INJECTED__ = true
-  void main()
+  // Wait until module state and the update listener have been initialized.
+  void Promise.resolve().then(main)
 }
 
-let currentConfig: Config = DEFAULT_CONFIG
+let currentConfig: PageConfig = DEFAULT_PAGE_CONFIG
 const pageTranslator = new PageTranslator(() => currentConfig)
+let initialized = false
 
 /** 整页翻译状态 → 扩展图标角标（绿 ✓ = 开启）。失败静默（页面卸载中 / SW 未就绪等）。 */
 function reportBadge(active: boolean) {
@@ -45,15 +47,16 @@ async function togglePageTranslation(): Promise<boolean> {
 
 async function main() {
   try {
-    const resp = (await chrome.runtime.sendMessage({ kind: 'getConfig' })) as BgResponse<Config>
-    currentConfig = resp.ok ? resp.data : DEFAULT_CONFIG
+    const config = await getPageConfig()
+    if (!initialized) currentConfig = config
   } catch {
-    currentConfig = DEFAULT_CONFIG
+    // Defaults are safe when the worker is temporarily unavailable.
   }
-  applyConfig(currentConfig, true)
+  if (!initialized) applyConfig(currentConfig, true)
 }
 
-function applyConfig(config: Config, first = false) {
+function applyConfig(config: PageConfig, first = false) {
+  initialized = true
   const previous = currentConfig
   currentConfig = config
   setContentUiLang(config)
@@ -98,10 +101,10 @@ async function maybeAutoTranslate() {
 }
 
 // 快捷键：按 config.hotkeys 解析匹配（与 manifest command 双保险）。
-// 处理器每次按键时读 currentConfig.hotkeys，configChanged 热同步后新配置即时生效。
+// 处理器每次按键时读 currentConfig.hotkeys，配置同步后新设置即时生效。
 document.addEventListener('keydown', (e) => {
   if (!isTrustedInteraction(e)) return
-  const hk = currentConfig.hotkeys ?? DEFAULT_CONFIG.hotkeys
+  const hk = currentConfig.hotkeys
   if (matchHotkey(e, hk.togglePage)) {
     e.preventDefault()
     void togglePageTranslation()
@@ -120,15 +123,11 @@ document.addEventListener('keydown', (e) => {
   }
 })
 
-// 配置热同步
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local') return
-  if (changes['tv:config_v1']) applyConfig(normalizeConfig(changes['tv:config_v1'].newValue))
-  if (changes['tv:words_v1'] && currentConfig.learning.enabled && currentConfig.learning.highlightOnPage) void applyHighlights(true)
-})
+watchPageConfig(config => applyConfig(config, !initialized))
 
 // 消息：popup / background 命令
-chrome.runtime.onMessage.addListener((msg: ContentRequest, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg: ContentRequest, sender, sendResponse) => {
+  if (sender.id !== chrome.runtime.id || !msg) return false
   if (msg.kind === 'togglePage') {
     void togglePageTranslation().then((active) => {
       sendResponse({ active })
@@ -141,10 +140,8 @@ chrome.runtime.onMessage.addListener((msg: ContentRequest, _sender, sendResponse
     sendResponse(result)
     return false
   }
-  if (msg.kind === 'configChanged') {
-    applyConfig(msg.config)
-    sendResponse(null)
-    return false
+  if (msg.kind === 'wordsChanged' && isBackgroundSender(sender) && currentConfig.learning.enabled && currentConfig.learning.highlightOnPage) {
+    void applyHighlights(true)
   }
   return false
 })

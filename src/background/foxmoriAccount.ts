@@ -2,10 +2,6 @@ import { FOXMORI_SITE, isFoxmoriSite, type FoxmoriAccount, type FoxmoriBridgeReq
 import { updateConfig } from '../shared/store'
 import type { BgResponse } from '../shared/protocol'
 
-export function assertExtensionPage(sender?: chrome.runtime.MessageSender): void {
-  if (!sender?.url?.startsWith(chrome.runtime.getURL(''))) throw new Error('此操作只能由扩展界面发起。')
-}
-
 async function accountTab(): Promise<number | null> {
   const tabs = await chrome.tabs.query({ url: FOXMORI_SITE + '/*' })
   const tab = tabs.find(tab => tab.active && isFoxmoriSite(tab.url ?? '')) ?? tabs.find(tab => isFoxmoriSite(tab.url ?? ''))

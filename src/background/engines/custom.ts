@@ -72,7 +72,7 @@ export const customEngine: Engine = {
       }
     }
     const body = renderBodyTemplate(ctx.config.engine.custom.bodyJson, { text, from, to })
-    const res = await getFetch()(url, { method: 'POST', headers, body, signal })
+    const res = await getFetch()(url, { method: 'POST', headers, body, signal, redirect: 'error', credentials: 'omit' })
     if (!res.ok) throw httpError('custom', res)
     const data = (await res.json()) as unknown
     const translated = extractFirstString(data)

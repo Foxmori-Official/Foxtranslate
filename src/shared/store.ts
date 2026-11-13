@@ -6,6 +6,7 @@ import { genId } from './ids'
 const KEY_CONFIG = 'tv:config_v1'
 const KEY_WORDS = 'tv:words_v1'
 const KEY_STATS = 'tv:stats_v1'
+let configSnapshot: Promise<Config> | undefined
 let writes: Promise<unknown> = Promise.resolve()
 function mutate<T>(operation: () => Promise<T>): Promise<T> {
   const result = writes.then(operation, operation)
@@ -33,9 +34,19 @@ function storageSet(obj: Record<string, unknown>): Promise<void> {
 
 // ===== config =====
 
-async function readConfig(): Promise<Config> {
-  const raw = await storageGet<unknown>(KEY_CONFIG)
-  return normalizeConfig(raw ?? DEFAULT_CONFIG)
+function readConfig(): Promise<Config> {
+  if (!configSnapshot) {
+    const pending = storageGet<unknown>(KEY_CONFIG).then(raw => normalizeConfig(raw ?? DEFAULT_CONFIG)).catch(error => {
+      if (configSnapshot === pending) configSnapshot = undefined
+      throw error
+    })
+    configSnapshot = pending
+  }
+  return configSnapshot
+}
+
+export function invalidateConfigSnapshot(): void {
+  configSnapshot = undefined
 }
 
 export async function getConfig(): Promise<Config> {
@@ -52,6 +63,7 @@ export function updateConfig(patch: (current: Config) => Partial<Config>): Promi
     const current = await getConfig()
     const next = normalizeConfig({ ...current, ...patch(current), version: 1 })
     await storageSet({ [KEY_CONFIG]: next })
+    configSnapshot = Promise.resolve(next)
     return next
   })
 }
@@ -101,15 +113,6 @@ export function flushTranslationStats(): Promise<void> {
     statsDirty = false
     try { await storageSet({ [KEY_STATS]: { translatedChars: stats.translatedChars } }) }
     catch (error) { statsDirty = true; throw error }
-  })
-}
-
-/** 监听配置变化（popup/options 修改后 content 热同步） */
-export function watchConfig(cb: (config: Config) => void): void {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes[KEY_CONFIG]) {
-      cb(normalizeConfig(changes[KEY_CONFIG].newValue))
-    }
   })
 }
 

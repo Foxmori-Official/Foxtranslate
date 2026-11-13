@@ -19,6 +19,8 @@ export const libreEngine: Engine = {
     const base = (ctx.config.engine.keys.libreUrl || 'https://libretranslate.com').replace(/\/+$/, '')
     const res = await getFetch()(`${base}/translate`, {
       method: 'POST',
+      redirect: 'error',
+      credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         q: text,

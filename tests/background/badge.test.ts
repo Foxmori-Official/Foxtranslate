@@ -23,13 +23,14 @@ const { listeners, actionMock } = vi.hoisted(() => {
 
 vi.stubGlobal('chrome', {
   runtime: {
+    id: 'fixture-extension',
     onMessage: {
       addListener: (fn: MessageListener) => {
         listeners.message = fn
       },
     },
     onInstalled: { addListener: vi.fn() },
-    getURL: (p: string) => p,
+    getURL: (p: string) => 'chrome-extension://fixture-extension/' + p,
     openOptionsPage: vi.fn(async () => undefined),
   },
   action: actionMock,
@@ -52,6 +53,7 @@ vi.stubGlobal('chrome', {
   contextMenus: { create: vi.fn(), onClicked: { addListener: vi.fn() } },
   storage: {
     local: {
+      setAccessLevel: vi.fn(async () => {}),
       get: vi.fn((_key: string, cb: (r: Record<string, unknown>) => void) => cb({})),
       set: vi.fn((_obj: Record<string, unknown>, cb: () => void) => cb()),
     },
@@ -75,7 +77,7 @@ beforeEach(() => {
 /** 模拟 content 发来 setBadge 消息，并等 handle() 异步链路跑完（sendResponse 被调用） */
 async function sendSetBadge(active: boolean, sender: unknown): Promise<void> {
   const sendResponse = vi.fn()
-  listeners.message!({ kind: 'setBadge', active }, sender, sendResponse)
+  listeners.message!({ kind: 'setBadge', active }, { id: 'fixture-extension', url: 'https://fixture.invalid/', frameId: 0, ...(sender as object) }, sendResponse)
   await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled())
 }
 

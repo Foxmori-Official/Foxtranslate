@@ -142,7 +142,7 @@ describe('源语言下拉', () => {
     expect(src.value).toBe('auto')
   })
 
-  it('切换源语言写入 config.general.sourceLang 并向当前 tab 热同步 configChanged', async () => {
+  it('切换源语言经后台保存，popup 不向网页发送完整配置', async () => {
     const app = await mount({ ...DEFAULT_CONFIG, uiLang: 'zh-CN' })
     const src = app.querySelector('select[data-lang-kind="source"]') as HTMLSelectElement
     runtimeMessages.length = 0
@@ -153,12 +153,10 @@ describe('源语言下拉', () => {
     const setMsg = runtimeMessages.find((m) => m.kind === 'setConfig')
     expect(setMsg?.patch).toMatchObject({ general: { sourceLang: 'en' } })
     expect(cfg.general.sourceLang).toBe('en')
-    const sync = tabMessages.find((m) => m.msg.kind === 'configChanged')
-    expect(sync).toBeTruthy()
-    expect((sync?.msg as unknown as { config: Config }).config.general.sourceLang).toBe('en')
+    expect(tabMessages.some(m => m.msg.kind === 'configChanged')).toBe(false)
   })
 
-  it('目标语言下拉保持原逻辑：切换写 targetLang 并热同步', async () => {
+  it('目标语言下拉经后台保存 targetLang', async () => {
     const app = await mount({ ...DEFAULT_CONFIG, uiLang: 'zh-CN' })
     const tgt = app.querySelector('select[data-lang-kind="target"]') as HTMLSelectElement
     expect(tgt.value).toBe('zh-CN')
@@ -167,7 +165,6 @@ describe('源语言下拉', () => {
     tgt.dispatchEvent(new Event('change'))
     await flush()
     expect(cfg.general.targetLang).toBe('ja')
-    expect(tabMessages.some((m) => m.msg.kind === 'configChanged')).toBe(true)
   })
 })
 

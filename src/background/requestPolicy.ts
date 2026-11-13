@@ -2,7 +2,7 @@ import type { Config } from '../shared/config'
 import { getExpert } from '../core/experts'
 
 /** Only hashes leave this module; credentials never become storage keys or log messages. */
-async function digest(value: unknown): Promise<string> {
+export async function stableDigest(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value))
   const hash = await crypto.subtle.digest('SHA-256', bytes)
   return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('')
@@ -26,7 +26,7 @@ function service(config: Config) {
 }
 
 export function translationIdentity(config: Config): Promise<string> {
-  return digest({
+  return stableDigest({
     version: 3, provider: config.engine.provider, service: service(config),
     expert: getExpert(config.experts.list, config.experts.activeId), mask: config.mask.enabled,
   })
@@ -37,7 +37,7 @@ async function accountIdentity(config: Config): Promise<string> {
   let origin = endpoint
   try { origin = new URL(endpoint).origin } catch { /* built-in engine id */ }
   // Different models and custom instances using the same origin/key share the same budget.
-  return digest({ origin, credential: credential || headers || '' })
+  return stableDigest({ origin, credential: credential || headers || '' })
 }
 
 interface Task {

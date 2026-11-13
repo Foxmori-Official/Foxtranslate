@@ -21,6 +21,7 @@ import {
 // chrome.runtime.getURL stub（options/background 环境均有；测试环境补一个恒等映射）
 vi.stubGlobal('chrome', {
   runtime: { getURL: (p: string) => `chrome-extension://test/${p}` },
+  permissions: { contains: async () => true },
 })
 
 function makeConfig(mutate?: (c: Config) => void): Config {

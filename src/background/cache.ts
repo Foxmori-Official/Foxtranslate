@@ -72,8 +72,7 @@ export async function flushCache(): Promise<void> {
 }
 
 /**
- * 缓存 key：引擎 id + 语言对 + 原文哈希 + promptSig 哈希（glossarySignature，
- * 术语表变更即自动失效，契约 §7）。promptSig 缺省为空串段。
+ * 缓存 key：引擎 id + 语言对 + 原文哈希 + 已计算的提示词/术语表摘要。
  */
 export function cacheKey(parts: {
   engine: string
@@ -82,8 +81,7 @@ export function cacheKey(parts: {
   text: string
   promptSig?: string
 }): string {
-  const sig = parts.promptSig ? textHash(parts.promptSig) : ''
-  return `tr|${parts.engine}|${parts.from}>${parts.to}|${textHash(parts.text)}|${sig}`
+  return `tr|${parts.engine}|${parts.from}>${parts.to}|${textHash(parts.text)}|${parts.promptSig ?? ''}`
 }
 
 /** LRU 命中（触碰提为最新）；未命中返回 undefined。 */

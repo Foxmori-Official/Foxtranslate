@@ -32,6 +32,23 @@ describe("applyGlossary", () => {
     expect(r.entities).toHaveLength(0);
   });
 
+  it('matches CJK and mixed text without matching inside Latin or accented words', () => {
+    const terms = [
+      { src: '人工智能', dst: 'AI' }, { src: 'Transformer', dst: '变换器' },
+      { src: '機械学習', dst: 'machine learning' }, { src: '번역', dst: 'translation' },
+      { src: 'cat', dst: '猫' }, { src: 'café', dst: '咖啡' },
+    ];
+    const result = applyGlossary('在现代人工智能系统中，Transformer架构。新しい機械学習を使う。자동번역기。bobcat cat_2 décaféiné CAFÉ', terms);
+    expect(result.entities.map(entity => entity.value)).toEqual(['AI', '变换器', 'machine learning', 'translation', '咖啡']);
+    expect(result.text).toContain('bobcat cat_2 décaféiné __GLOSSARY_5__');
+  });
+
+  it('keeps longer overlapping matches even when they start after a shorter match', () => {
+    const result = applyGlossary('现代人工智能系统', [{ src: '现代人工', dst: 'short' }, { src: '人工智能系统', dst: 'long' }]);
+    expect(result.text).toBe('现代__GLOSSARY_1__');
+    expect(result.entities).toEqual([{ serial: 1, value: 'long' }]);
+  });
+
   it("边界感知：标点/空白/字符串首尾视为边界", () => {
     const r = applyGlossary("(cat), cat; 'cat'", [{ src: "cat", dst: "猫" }]);
     expect(r.text).toBe("(__GLOSSARY_1__), __GLOSSARY_2__; '__GLOSSARY_3__'");
@@ -168,13 +185,12 @@ describe("glossaryPromptBlock", () => {
 });
 
 describe("glossarySignature", () => {
-  it("src=dst; 拼接，供缓存 key", () => {
-    expect(
-      glossarySignature([
-        { src: "server", dst: "服务器" },
-        { src: "cat", dst: "猫" },
-      ]),
-    ).toBe("server=服务器;cat=猫;");
+  it('separates distinct tables that collided on the old delimiters', () => {
+    const first = [{ src: 'a', dst: 'b;c=d' }];
+    const second = [{ src: 'a', dst: 'b' }, { src: 'c', dst: 'd' }];
+    expect(glossarySignature(first)).not.toBe(glossarySignature(second));
+    expect(applyGlossary('a c', first).entities.map(entity => entity.value)).toEqual(['b;c=d']);
+    expect(applyGlossary('a c', second).entities.map(entity => entity.value)).toEqual(['b', 'd']);
   });
 
   it("空表返回空串", () => {

@@ -284,12 +284,11 @@ describe('resolveEngine custom:<id>', () => {
     expect(() => resolveEngine('custom:ghost', makeCtx())).toThrow(/unknown engine "custom:ghost"/)
   })
 
-  it('同步后删除条目，再次解析回到兜底报错', () => {
-    syncCustomEngines(makeConfig((c) => {
+  it('使用请求快照解析条目，删除条目后的新快照报错', () => {
+    const original = makeCtx((c) => {
       c.engine.customEngines = [makeEntry('e1')]
-    }))
-    expect(() => resolveEngine('custom:e1', makeCtx())).not.toThrow()
-    syncCustomEngines(makeConfig())
+    })
+    expect(() => resolveEngine('custom:e1', original)).not.toThrow()
     expect(() => resolveEngine('custom:e1', makeCtx())).toThrow(/unknown engine/)
   })
 })

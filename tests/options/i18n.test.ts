@@ -1,39 +1,17 @@
-/**
- * @vitest-environment jsdom
- *
- * 10 语言国际化测试：
- * - resolveUiLang 各分支（auto→浏览器语言映射 / 未知回退 en；显式语言直返）
- * - UI_LANGS 顺序与数量（10 项，auto 第一，한국어 最后）
- * - de/es/fr/pt-BR/ja/zh-TW/ko 七语言字典键集合与 EN 键集合一致（无缺漏、无多馀键），
- *   en 字典用 t() 哨兵探针验证键齐全；{n}/{m}/{w}/{d} 占位符保留
- * - 通用页「界面语言」下拉渲染 10 项，切换后按 resolveUiLang 解析后的语言即时重渲染
- *
- * main.ts 在 document 存在时自动 init()，DOM 用例先装 chrome stub 再动态 import。
- */
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
 import {
   UI_LANGS,
   resolveUiLang,
   t,
-  type ResolvedLang,
 } from "../../src/shared/i18n";
-import {
-  DICT_DE,
-  DICT_ES,
-  DICT_FR,
-  DICT_PT_BR,
-  DICT_JA,
-  DICT_ZH_TW,
-  DICT_KO,
-} from "../../src/shared/i18n-dicts";
-import { PAGE_DICTS } from "../../src/shared/i18n-pages";
 import { TRANSLATION_STYLES } from "../../src/core/styles";
 import { BUILTIN_EXPERTS } from "../../src/core/experts";
 import { BUILTIN_ENGINES } from "../../src/shared/engines";
-import { DEFAULT_CONFIG } from "../../src/shared/config";
+import { DEFAULT_CONFIG, normalizeConfig } from "../../src/shared/config";
 import type { Config } from "../../src/shared/config";
 
-// ===== EN 字典键集合（与 src/shared/i18n.ts 中 EN 字典一一对应，共 82 键） =====
+// ===== EN 字典键集合（与 src/shared/i18n.ts 中 EN 字典一一对应，） =====
 
 const EXPECTED_KEYS = [
   "style.soft-gray",
@@ -468,185 +446,44 @@ const EXPECTED_KEYS = [
   "general.domainPlaceholder",
 ];
 
-// ===== resolveUiLang =====
+describe("界面语言解析", () => {
+  it("显式中英文覆盖浏览器语言，旧中文变体统一用简体中文", () => {
+    expect(resolveUiLang("en", "zh-HK")).toBe("en");
+    expect(resolveUiLang("zh-CN", "en-US")).toBe("zh-CN");
+    expect(resolveUiLang("zh-TW")).toBe("zh-CN");
+    expect(resolveUiLang("zh_Hant")).toBe("zh-CN");
+  });
 
-describe("resolveUiLang", () => {
-  it("显式语言直返（不解析浏览器语言）", () => {
-    for (const code of [
-      "en",
-      "de",
-      "es",
-      "fr",
-      "pt-BR",
-      "ja",
-      "zh-CN",
-      "zh-TW",
-      "ko",
-    ] as const) {
-      expect(resolveUiLang(code)).toBe(code);
-      // 即使浏览器语言不同也不受影响
-      expect(resolveUiLang(code, "ja-JP")).toBe(code);
+  it("跟随系统时中文系统使用中文，其他系统使用英文", () => {
+    for (const lang of ["zh-CN", "zh-HK", "zh-Hant-TW"]) {
+      expect(resolveUiLang("auto", lang)).toBe("zh-CN");
+    }
+    for (const lang of ["en-US", "ja-JP", "de-DE", "fr-CA", "pt-BR", "ko-KR"]) {
+      expect(resolveUiLang("auto", lang)).toBe("en");
     }
   });
 
-  it("auto：繁体中文地区（TW/HK/MO/Hant）→ zh-TW，其余中文 → zh-CN", () => {
-    expect(resolveUiLang("auto", "zh-TW")).toBe("zh-TW");
-    expect(resolveUiLang("auto", "zh-HK")).toBe("zh-TW");
-    expect(resolveUiLang("auto", "zh-MO")).toBe("zh-TW");
-    expect(resolveUiLang("auto", "zh-Hant-TW")).toBe("zh-TW");
-    expect(resolveUiLang("auto", "zh-CN")).toBe("zh-CN");
-    expect(resolveUiLang("auto", "zh-SG")).toBe("zh-CN");
-    expect(resolveUiLang("auto", "zh")).toBe("zh-CN");
+  it("旧界面语言迁移不影响翻译语种", () => {
+    const config = normalizeConfig({ uiLang: "ja", general: { sourceLang: "fr", targetLang: "ja" } });
+    expect(config.uiLang).toBe("en");
+    expect(config.general).toMatchObject({ sourceLang: "fr", targetLang: "ja" });
+    expect(normalizeConfig({ uiLang: "zh-TW" }).uiLang).toBe("zh-CN");
+    expect(normalizeConfig({ uiLang: "auto" }).uiLang).toBe("auto");
   });
 
-  it("显式不支持语言 → 英语兜底（英语为项目兜底语言）", () => {
-    expect(resolveUiLang("it")).toBe("en");
-    expect(resolveUiLang("ru-RU")).toBe("en");
-    expect(resolveUiLang("xx-YY")).toBe("en");
-    expect(resolveUiLang("")).toBe("en");
-    // zh 系变体归一（旧配置可能存裸 zh）
-    expect(resolveUiLang("zh")).toBe("zh-CN");
-    expect(resolveUiLang("zh-Hant")).toBe("zh-TW");
-    expect(resolveUiLang("zh-HK")).toBe("zh-TW");
-    // 地区变体归一到主语言
-    expect(resolveUiLang("pt")).toBe("pt-BR");
-    expect(resolveUiLang("pt-PT")).toBe("pt-BR");
-    expect(resolveUiLang("en-US")).toBe("en");
-    expect(resolveUiLang("de-AT")).toBe("de");
-    expect(resolveUiLang("ja-JP")).toBe("ja");
-  });
-
-  it("t()：不支持语言或缺键时英语字典兜底（不再回退中文）", () => {
-    // 不支持语言（模拟旧配置残留 uiLang=it）→ 取英语值
-    expect(t("settings", "it", "设置")).toBe("Settings");
-    expect(t("style.soft-gray", "it", "柔和灰")).toBe("Soft gray");
-    // 键在某语言缺失（模拟）→ 英语值；英语也缺 → 中文原文
-    expect(t("no.such.key", "de", "原文中文")).toBe("原文中文");
-    expect(t("no.such.key", "it", "原文中文")).toBe("原文中文");
-  });
-
-  it("auto：de/es/fr/pt/ja/ko 按前缀映射（pt 一律 pt-BR）", () => {
-    expect(resolveUiLang("auto", "de-DE")).toBe("de");
-    expect(resolveUiLang("auto", "de-AT")).toBe("de");
-    expect(resolveUiLang("auto", "es-ES")).toBe("es");
-    expect(resolveUiLang("auto", "es-MX")).toBe("es");
-    expect(resolveUiLang("auto", "fr-FR")).toBe("fr");
-    expect(resolveUiLang("auto", "fr-CA")).toBe("fr");
-    expect(resolveUiLang("auto", "pt-BR")).toBe("pt-BR");
-    expect(resolveUiLang("auto", "pt-PT")).toBe("pt-BR");
-    expect(resolveUiLang("auto", "ja-JP")).toBe("ja");
-    expect(resolveUiLang("auto", "ko-KR")).toBe("ko");
-  });
-
-  it("auto：en 与未知语言 → en", () => {
-    expect(resolveUiLang("auto", "en-US")).toBe("en");
-    expect(resolveUiLang("auto", "en-GB")).toBe("en");
-    expect(resolveUiLang("auto", "it-IT")).toBe("en");
-    expect(resolveUiLang("auto", "xx-XX")).toBe("en");
-    expect(resolveUiLang("auto", "")).toBe("en");
-  });
-
-  it("auto：未传 browserLang 时读取 navigator.language（jsdom 默认 en-US）", () => {
-    Object.defineProperty(window.navigator, "language", {
-      value: "en-US",
-      configurable: true,
-    });
-    expect(resolveUiLang("auto")).toBe("en");
-    Object.defineProperty(window.navigator, "language", {
-      value: "ja-JP",
-      configurable: true,
-    });
-    expect(resolveUiLang("auto")).toBe("ja");
-    Object.defineProperty(window.navigator, "language", {
-      value: "zh-HK",
-      configurable: true,
-    });
-    expect(resolveUiLang("auto")).toBe("zh-TW");
-  });
-});
-
-// ===== UI_LANGS =====
-
-describe("UI_LANGS", () => {
-  it("10 项，严格顺序：auto 第一、한국어 最后", () => {
-    expect(UI_LANGS.length).toBe(10);
-    expect(UI_LANGS.map((l) => l.code)).toEqual([
-      "auto",
-      "en",
-      "de",
-      "es",
-      "fr",
-      "pt-BR",
-      "ja",
-      "zh-CN",
-      "zh-TW",
-      "ko",
-    ]);
-    expect(UI_LANGS[0].name).toBe("跟随系统");
-    expect(UI_LANGS[UI_LANGS.length - 1].name).toBe("한국어");
-    expect(UI_LANGS.map((l) => l.name)).toEqual([
-      "跟随系统",
-      "English",
-      "Deutsch",
-      "Español",
-      "Français",
-      "Português (Brasil)",
-      "日本語",
-      "简体中文",
-      "繁體中文",
-      "한국어",
-    ]);
-  });
-});
-
-// ===== 字典完整性 =====
-
-const REGISTERED_DICTS: ReadonlyArray<[ResolvedLang, Record<string, string>]> = [
-  ["de", DICT_DE],
-  ["es", DICT_ES],
-  ["fr", DICT_FR],
-  ["pt-BR", DICT_PT_BR],
-  ["ja", DICT_JA],
-  ["zh-TW", DICT_ZH_TW],
-  ["ko", DICT_KO],
-];
-
-describe("字典键集合与 EN 一致", () => {
-  it("EN 字典（i18n.ts 注册）覆盖全部 82 键（哨兵探针）", () => {
-    const SENTINEL = "MISSING";
-    for (const key of EXPECTED_KEYS) {
-      expect(t(key, "en", SENTINEL)).not.toBe(SENTINEL);
+  it("英文词条齐全，中文使用源码文案", () => {
+    expect(UI_LANGS.map(l => l.code)).toEqual(["auto", "en", "zh-CN"]);
+    const keys = [
+      ...EXPECTED_KEYS,
+      ...TRANSLATION_STYLES.map(s => s.nameKey),
+      ...BUILTIN_EXPERTS.flatMap(e => e.nameKey ? [e.nameKey] : []),
+      ...BUILTIN_ENGINES.flatMap(e => e.descKey ? [e.nameKey, e.descKey] : [e.nameKey]),
+    ];
+    for (const key of keys) {
+      expect(t(key, "en", "MISSING"), key).not.toBe("MISSING");
     }
-  });
-
-  it.each(REGISTERED_DICTS)("%s：键集合与 EN 完全一致（无缺漏、无多馀键）", (_lang, dict) => {
-    expect(Object.keys(dict).sort()).toEqual([...EXPECTED_KEYS].sort());
-  });
-
-  it.each(REGISTERED_DICTS)("%s：所有词条为非空字符串", (_lang, dict) => {
-    for (const [k, v] of Object.entries(dict)) {
-      expect(typeof v, k).toBe("string");
-      expect(v.trim().length, k).toBeGreaterThan(0);
-    }
-  });
-
-  it.each(REGISTERED_DICTS)("%s：占位符 {n}/{m}/{w}/{d} 原样保留", (_lang, dict) => {
-    expect(dict["popup.statusTranslated"]).toContain("{n}");
-    expect(dict["popup.statusTranslatedFail"]).toContain("{n}");
-    expect(dict["popup.statusTranslatedFail"]).toContain("{m}");
-    expect(dict["popup.stats"]).toContain("{w}");
-    expect(dict["popup.stats"]).toContain("{d}");
-  });
-
-  it("注册已生效：t() 能取到各语言词条（不回退中文）", () => {
-    expect(t("tab.general", "de", "通用")).toBe("Allgemein");
-    expect(t("tab.general", "es", "通用")).toBe("General");
-    expect(t("tab.general", "fr", "通用")).toBe("Général");
-    expect(t("tab.general", "pt-BR", "通用")).toBe("Geral");
-    expect(t("tab.general", "ja", "通用")).toBe("一般");
-    expect(t("tab.general", "zh-TW", "通用")).toBe("一般");
-    expect(t("tab.general", "ko", "通用")).toBe("일반");
-    // zh-CN 为源语言，直接回退中文原文
+    expect(t("popup.stats", "en", "")).toContain("{w}");
+    expect(t("popup.stats", "en", "")).toContain("{d}");
     expect(t("tab.general", "zh-CN", "通用")).toBe("通用");
   });
 });
@@ -723,175 +560,30 @@ function navLabels(): string[] {
   );
 }
 
-function cardTitles(): string[] {
-  return Array.from(document.querySelectorAll(".content > .card"),
-    (card) => card.querySelector(".card-title")?.textContent ?? "",
-  );
-}
-
 describe("通用页界面语言下拉", () => {
-  it("渲染 10 项（UI_LANGS 严格顺序），默认 auto 选中", async () => {
-    await boot(structuredClone(DEFAULT_CONFIG)); // DEFAULT_CONFIG.uiLang === 'auto'
-
-    const uiCard = cardByTitle("界面语言"); // auto + 浏览器 zh-CN → 中文界面
-    const sel = qs<HTMLSelectElement>("select.control", uiCard);
-    expect(sel.options.length).toBe(10);
-    expect(Array.from(sel.options).map((o) => o.value)).toEqual([
-      "auto",
-      "en",
-      "de",
-      "es",
-      "fr",
-      "pt-BR",
-      "ja",
-      "zh-CN",
-      "zh-TW",
-      "ko",
-    ]);
-    expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
-      "跟随系统",
-      "English",
-      "Deutsch",
-      "Español",
-      "Français",
-      "Português (Brasil)",
-      "日本語",
-      "简体中文",
-      "繁體中文",
-      "한국어",
-    ]);
-    expect(sel.value).toBe("auto");
-    // auto 按浏览器 zh-CN 解析：导航与页标题为中文
+  it("只提供跟随系统、英文和简体中文", async () => {
+    await boot(structuredClone(DEFAULT_CONFIG));
+    const select = qs<HTMLSelectElement>("select.control", cardByTitle("界面语言"));
+    expect(Array.from(select.options, o => o.value)).toEqual(["auto", "en", "zh-CN"]);
+    expect(Array.from(select.options, o => o.textContent)).toEqual(["跟随系统", "English", "简体中文"]);
+    expect(select.value).toBe("auto");
     expect(navLabels()[0]).toBe("通用");
-    expect(qs<HTMLElement>(".page-title").textContent).toBe("通用");
   });
 
-  it("切换 Deutsch：写入 config.uiLang 并即时按德语重渲染导航/标题/通用页", async () => {
+  it("切换英文后保存并立即重渲染，再切回中文", async () => {
     await boot(structuredClone(DEFAULT_CONFIG));
-
-    const sel = qs<HTMLSelectElement>(
-      "select.control",
-      cardByTitle("界面语言"),
-    );
-    sel.value = "de";
-    sel.dispatchEvent(new Event("change"));
+    const select = qs<HTMLSelectElement>("select.control", cardByTitle("界面语言"));
+    select.value = "en";
+    select.dispatchEvent(new Event("change"));
     await flush();
-
-    expect(stored.uiLang).toBe("de");
-    expect(navLabels()[0]).toBe("Allgemein");
-    expect(navLabels()[1]).toBe("Engines");
-    expect(qs<HTMLElement>(".page-title").textContent).toBe("Allgemein");
-    expect(qs<HTMLElement>(".page-desc").textContent).toBe(
-      "Sprache, Anzeigemodus sowie Website- und Sprachlisten",
-    );
-    expect(cardTitles()).toEqual([
-      "Sprachen",
-      "Anzeigemodus",
-      "Diese Websites immer übersetzen",
-      "Diese Sprachen immer übersetzen",
-      "Diese Websites nie übersetzen",
-    ]);
-    // 重渲染后下拉保持 Deutsch 选中，且仍为 10 项
-    const selAfter = qs<HTMLSelectElement>(
-      "select.control",
-      cardByTitle("Oberflächensprache"),
-    );
-    expect(selAfter.value).toBe("de");
-    expect(selAfter.options.length).toBe(10);
-  });
-
-  it("切换 日本語：导航与页标题即时按日语重渲染", async () => {
-    await boot(structuredClone(DEFAULT_CONFIG));
-
-    const sel = qs<HTMLSelectElement>(
-      "select.control",
-      cardByTitle("界面语言"),
-    );
-    sel.value = "ja";
-    sel.dispatchEvent(new Event("change"));
-    await flush();
-
-    expect(stored.uiLang).toBe("ja");
-    expect(navLabels()[0]).toBe("一般");
-    expect(qs<HTMLElement>(".page-title").textContent).toBe("一般");
-    expect(cardTitles().slice(0, 2)).toEqual(["Languages", "表示モード"]);
-  });
-
-  it("auto 跟随浏览器：浏览器 en-US 时按英文渲染", async () => {
-    await boot(structuredClone(DEFAULT_CONFIG), "en-US");
-
+    expect(stored.uiLang).toBe("en");
     expect(navLabels()[0]).toBe("General");
-    expect(qs<HTMLElement>(".page-title").textContent).toBe("General");
-    const sel = qs<HTMLSelectElement>(
-      "select.control",
-      cardByTitle("Interface language"),
-    );
-    expect(sel.value).toBe("auto");
+    const englishSelect = qs<HTMLSelectElement>("select.control", cardByTitle("Interface language"));
+    expect(englishSelect.value).toBe("en");
+    englishSelect.value = "zh-CN";
+    englishSelect.dispatchEvent(new Event("change"));
+    await flush();
+    expect(stored.uiLang).toBe("zh-CN");
+    expect(navLabels()[0]).toBe("通用");
   });
-});
-
-
-// ===== 字典健全性（防重建污染回归：2026-10 字典灾后重建曾混入 76 个 pages 键与 374 处错位值）=====
-
-describe("字典健全性（防重建污染回归）", () => {
-  const ALL_DICTS: [string, Record<string, string>][] = [
-    ["en", Object.fromEntries(EXPECTED_KEYS.map((k) => [k, t(k, "en", "")]))],
-    ["de", DICT_DE],
-    ["es", DICT_ES],
-    ["fr", DICT_FR],
-    ["pt-BR", DICT_PT_BR],
-    ["ja", DICT_JA],
-    ["zh-TW", DICT_ZH_TW],
-    ["ko", DICT_KO],
-  ];
-  const PH = /\{(\w+)\}/g;
-
-  it("字典归属：i18n-dicts 与 i18n-pages 键集合不相交（pages 键只允许出现在 i18n-pages）", () => {
-    for (const [name, dict] of ALL_DICTS) {
-      for (const key of Object.keys(dict)) {
-        if (PAGE_DICTS.en && key in PAGE_DICTS.en) {
-          throw new Error(`${name} 字典含 pages 专属键 ${key}（应只存在于 i18n-pages.ts）`);
-        }
-      }
-    }
-  });
-
-  it("占位符一致性：每个键在全部 9 个字典中的 {占位符} 集合相同（防键值错位）", () => {
-    for (const key of EXPECTED_KEYS) {
-      const sets = ALL_DICTS.map(([name, dict]) => {
-        const v = dict[key];
-        return [name, (String(v ?? "").match(PH) || []).sort().join(",")] as const;
-      });
-      const ref = sets[0][1];
-      for (const [name, ph] of sets) {
-        expect(ph, `${name}.${key} 占位符集合`).toBe(ref);
-      }
-    }
-  });
-
-  it("值非空壳：占位符-only 值仅允许出现在拼接型键白名单（正文在内层 t()）", () => {
-    const ALLOWLIST = new Set(["pop.s2", "pop.s3", "ob.s7", "ob.s8", "opt.glossaryLibs.s6", "opt.glossaryLibs.s12"]);
-    for (const [name, dict] of ALL_DICTS) {
-      for (const [key, v] of Object.entries(dict)) {
-        if (ALLOWLIST.has(key)) continue;
-        const text = String(v).replace(/\{p?\w+\}/g, "").trim();
-        expect(text.length > 0, `${name}.${key} 值为纯占位符空壳`).toBe(true);
-      }
-    }
-  });
-
-  it("数据键存在性：样式/专家/引擎的 nameKey 与 descKey 在全部 9 字典中都有值（防连字符键被解析器丢弃）", () => {
-    const dataKeys: string[] = [
-      ...TRANSLATION_STYLES.map((s) => s.nameKey),
-      ...BUILTIN_EXPERTS.map((e) => e.nameKey).filter((k): k is string => Boolean(k)),
-      ...BUILTIN_ENGINES.flatMap((e) => [e.nameKey, e.descKey].filter((k): k is string => Boolean(k))),
-    ];
-    for (const key of dataKeys) {
-      for (const [name, dict] of ALL_DICTS) {
-        expect(typeof dict[key], `${name}.${key} 缺失（数据键必须存在于全部字典）`).toBe("string");
-        expect(String(dict[key]).length, `${name}.${key} 空值`).toBeGreaterThan(0);
-      }
-    }
-  });
-
 });

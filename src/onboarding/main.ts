@@ -3,7 +3,7 @@ import { createReadingPreview } from '../shared/readingPreview'
 import { featureCopy } from '../shared/featureCopy'
 import { bindListbox } from '../shared/listbox'
 /**
- * Foxtranslate 首次安装引导页 — 三步卡片式向导（原生 TS，无框架，10 语言 UI）。
+ * Foxtranslate 首次安装引导页 — 三步卡片式向导（原生 TS，无框架，中英文界面）。
  *
  * 三步：
  * 1. 欢迎与基础设置：目标语言（LANGS 全量，常用置顶）、翻译引擎（Foxmori置顶 + 内置 +
@@ -18,7 +18,7 @@ import { bindListbox } from '../shared/listbox'
  */
 import { LANGS, COMMON_LANG_CODES, langNative } from '../core/langs'
 import type { Config } from '../shared/config'
-import { fmt, resolveUiLang, t, UI_LANGS, type ResolvedLang } from '../shared/i18n'
+import { fmt, resolveUiLang, normalizeUiLang, t, UI_LANGS, type ResolvedLang } from '../shared/i18n'
 import { watchUiLang } from '../shared/i18n-pages'
 import type { BgRequest, BgResponse, TranslateResult } from '../shared/protocol'
 import { BUILTIN_ENGINES, engineName } from '../shared/engines'
@@ -658,7 +658,7 @@ function render(): void {
     option.value = item.code
     select.append(option)
   }
-  select.value = UI_LANGS.some(item => item.code === config?.uiLang) ? config.uiLang : 'auto'
+  select.value = normalizeUiLang(config.uiLang)
   select.addEventListener('change', () => {
     void applyPatch({ uiLang: select.value }).then(() => app.querySelector<HTMLSelectElement>('.ob-ui-language')?.focus())
   })

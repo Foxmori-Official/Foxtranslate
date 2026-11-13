@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * files（文档翻译）页 i18n 测试：jsdom 起真实页面，stub getConfig 返回不同 uiLang，断言：
- * - uiLang=en / ja / zh-CN 时，品牌标题、上传区（主文案/格式说明/按钮）、
+ * - uiLang=en / zh-CN 时，品牌标题、上传区（主文案/格式说明/按钮）、
  *   翻译设置卡片、开始翻译按钮、校订卡片等文案随界面语言正确切换
  * - storage tv:config_v1 中 uiLang 变化时，页面按新语言即时重渲染（watchUiLang）
  */
@@ -111,19 +111,6 @@ describe('files 页 i18n', () => {
     expect(q('.pe-count').textContent).toBe('Edited 0 / 0 segments')
   })
 
-  it('uiLang=ja：标题/上传区/按钮等文案为日文', async () => {
-    await boot('ja')
-    await waitTitle('ドキュメント翻訳')
-
-    expect(cardTitle(0)).toBe('ファイルを選択')
-    expect(q('.dropzone-main').textContent).toBe('ここにファイルをドラッグ')
-    expect(q('.dropzone-btn').textContent).toBe('クリックしてファイルを選択')
-    expect(cardTitle(1)).toBe('翻訳設定')
-    expect(q('.actions .btn').textContent).toBe('翻訳開始')
-    expect(cardTitle(2)).toBe('訳文を校訂')
-    expect(q('.pe-toggle-text').textContent).toBe('校訂モード')
-  })
-
   it('uiLang=zh-CN：文案回退中文原文', async () => {
     await boot('zh-CN')
     await waitTitle('文档翻译')
@@ -153,14 +140,14 @@ describe('files 页 i18n', () => {
     expect(q('.actions .btn').textContent).toBe('Translate')
     expect(q('.pe-count').textContent).toBe('Edited 0 / 0 segments')
 
-    // 切到日文
+    // 旧日语设置回退英文
     storageListener({ 'tv:config_v1': { newValue: { uiLang: 'ja' } } }, 'local')
-    expect(q('.file-page-title').textContent).toBe('ドキュメント翻訳')
-    expect(q('.dropzone-main').textContent).toBe('ここにファイルをドラッグ')
+    expect(q('.file-page-title').textContent).toBe('Document Translation')
+    expect(q('.dropzone-main').textContent).toBe('Drag & drop a file here')
 
     // sync 之外的变化（非 local 命名空间）不触发重渲染
-    storageListener({ 'tv:config_v1': { newValue: { uiLang: 'en' } } }, 'sync')
-    expect(q('.file-page-title').textContent).toBe('ドキュメント翻訳')
+    storageListener({ 'tv:config_v1': { newValue: { uiLang: 'zh-CN' } } }, 'sync')
+    expect(q('.file-page-title').textContent).toBe('Document Translation')
 
     // 切回中文
     storageListener({ 'tv:config_v1': { newValue: { uiLang: 'zh-CN' } } }, 'local')

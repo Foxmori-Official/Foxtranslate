@@ -1,6 +1,6 @@
 import { appSidebar } from '../shared/appShell'
 /**
- * Foxtranslate files — 文档翻译页（原生 TS，10 语言 UI）。
+ * Foxtranslate files — 文档翻译页（原生 TS，中英文界面）。
  *
  * 流程：选择/拖拽文件 → parser.parse 切片段 → 分批 translateBatch（每批 50 段或 1800 字符，
  * 并发 3，AbortController 可取消）→ 校订（可选，逐段编辑译文）→ parser.build 回写 →

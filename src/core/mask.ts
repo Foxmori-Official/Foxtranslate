@@ -2,7 +2,7 @@
  * Foxtranslate core — 敏感信息脱敏（移植自 OpenImmersive sensitive-mask.js，TS 重写并增强）。
  *
  * 发送给翻译引擎前把敏感信息替换成占位符（__PII_EMAIL_1__），翻译返回后按记录还原。
- * 检测与还原全部在本地完成，原文敏感内容不会离开浏览器。
+ * 检测与还原在本地完成；仅匹配到的内容会在发送前被替换。
  *
  * 精度优先原则：宁可漏检也不误伤——财务文档里到处是数字，电话/卡号的匹配都带校验或
  * 强格式约束（Luhn / 身份证 mod-11 + 出生日期合理性 / 国际区号 + 前缀），千分位数字
@@ -10,6 +10,8 @@
  *
  * 本模块为 core 纯逻辑：零浏览器 API、零外部依赖。
  */
+
+import { restorePlaceholders } from './placeholders';
 
 // ── 类型 ────────────────────────────────────────────────────────────────────
 
@@ -69,6 +71,9 @@ function isValidCnId(raw: string): boolean {
   const month = Number(raw.slice(10, 12));
   const day = Number(raw.slice(12, 14));
   if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  if (day > days) return false;
   let sum = 0;
   for (let i = 0; i < 17; i++) sum += (raw.charCodeAt(i) - 48) * ID_WEIGHTS[i];
   return ID_CHECK[sum % 11] === raw[17].toUpperCase();
@@ -89,7 +94,10 @@ const DETECTORS: readonly Detector[] = [
     // 重叠区间（如 sk-alice@example.com-xxxx 必须作为 KEY 整体命中，而非降级成 EMAIL）。
     type: 'KEY',
     regexes: [
-      /\bsk-[A-Za-z0-9._@-]{20,}/g, // OpenAI / DeepSeek / Stripe
+      /-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----(?:(?!-----(?:BEGIN|END) )[\s\S])*?-----END \1-----/g, // PEM; never scan past another marker
+      /\bsk-[A-Za-z0-9._@-]{20,}/g, // OpenAI / DeepSeek / Anthropic
+      /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, // Stripe secret/restricted keys
+      /\bhf_[A-Za-z0-9]{20,}\b/g, // Hugging Face
       /\bgh[pousr]_[A-Za-z0-9]{36,255}\b/g, // GitHub
       /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key
       /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key
@@ -99,7 +107,8 @@ const DETECTORS: readonly Detector[] = [
   },
   {
     type: 'EMAIL',
-    regexes: [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g],
+    // Don't restart the greedy local part at every position of the same token if there is no '@'.
+    regexes: [/(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g],
   },
   {
     type: 'IDCARD',
@@ -178,7 +187,7 @@ export function maskSensitive(text: string): MaskResult {
   }
   if (spans.length === 0) return { masked: text, entities: [] };
 
-  // 序号按出现顺序（每类独立计数）；替换从后往前，避免偏移失效。
+  // 序号按出现顺序（每类独立计数），一次拼接输出。
   spans.sort((a, b) => a.start - b.start);
   const counters: Partial<Record<MaskEntityType, number>> = {};
   const entities: MaskEntity[] = spans.map((s) => {
@@ -186,13 +195,15 @@ export function maskSensitive(text: string): MaskResult {
     return { type: s.type, serial: counters[s.type] as number, value: s.value };
   });
 
-  let masked = text;
-  for (let i = spans.length - 1; i >= 0; i--) {
-    const s = spans[i];
-    const e = entities[i];
-    masked = masked.slice(0, s.start) + placeholderFor(e.type, e.serial) + masked.slice(s.end);
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const [i, { start, end }] of spans.entries()) {
+    const { type, serial } = entities[i];
+    parts.push(text.slice(cursor, start), placeholderFor(type, serial));
+    cursor = end;
   }
-  return { masked, entities };
+  parts.push(text.slice(cursor));
+  return { masked: parts.join(''), entities };
 }
 
 // ── 还原 ────────────────────────────────────────────────────────────────────
@@ -204,17 +215,5 @@ export function maskSensitive(text: string): MaskResult {
  * 找不到的占位符跳过（该实体在译文中缺失，只影响完整性不泄露信息）。
  */
 export function restoreSensitive(text: string, entities: MaskEntity[]): string {
-  if (!text || entities.length === 0) return text;
-  let out = text;
-  // 序号降序还原，配合 (?!\d) 避免 _1 误吞 _11
-  const ordered = [...entities].sort((a, b) => b.serial - a.serial);
-  for (const e of ordered) {
-    const re = new RegExp(
-      '(?:_\\s*){1,4}PII[_\\s]+' + e.type + '[_\\s]+' + e.serial + '(?!\\d)(?:\\s*_{1}){0,4}',
-      'gi',
-    );
-    // 函数回调：value 原样返回，防止其中 `$&` 等被当作替换串特殊序列解释
-    out = out.replace(re, () => e.value);
-  }
-  return out;
+  return restorePlaceholders(text, entities, []);
 }

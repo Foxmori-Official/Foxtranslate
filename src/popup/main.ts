@@ -11,13 +11,12 @@ import { bindListbox } from '../shared/listbox'
  *   再 chrome.tabs.sendMessage；无 content 脚本（chrome://、商店页等）时视为“此页面不可用”。
  *
  * 配置写入：{kind:'setConfig',patch}（store 为浅合并，嵌套字段须整对象展开后传入）。
- * 目标语言 / 显示模式 / 译文样式 / 引擎变更后，另向当前 tab 发 {kind:'configChanged',config} 热同步。
+ * 配置保存后由后台统一向网页发送精简配置。
  */
 import { LANGS, COMMON_LANG_CODES, langNative } from '../core/langs'
 import { TRANSLATION_STYLES, getStyle } from '../core/styles'
 import type { Config } from '../shared/config'
 import { t, resolveUiLang } from '../shared/i18n'
-import '../shared/i18n-dicts'
 import type {
   BgRequest,
   BgResponse,
@@ -188,9 +187,8 @@ let dueBadge: HTMLSpanElement
 
 // ===== 配置更新 =====
 
-async function patchConfig(patch: Partial<Config>, syncToTab: boolean): Promise<void> {
+async function patchConfig(patch: Partial<Config>): Promise<void> {
   config = await sendBg<Config>({ kind: 'setConfig', patch })
-  if (syncToTab) await sendToContent<unknown>({ kind: 'configChanged', config })
 }
 
 // ===== 头部 =====
@@ -335,7 +333,7 @@ function buildLangSelect(kind: 'source' | 'target'): HTMLSelectElement {
       kind === 'source'
         ? { ...config.general, sourceLang: sel.value }
         : { ...config.general, targetLang: sel.value }
-    void patchConfig({ general }, true).catch(ignore)
+    void patchConfig({ general }).catch(ignore)
   })
   return sel
 }
@@ -390,7 +388,7 @@ function buildStyleSelect(): HTMLElement {
     item.append(makeSwatch(style.id), el('span', 'style-select-item-name', styleName(style, ui)))
     item.addEventListener('click', () => {
       close()
-      void patchConfig({ style: { styleId: style.id } }, true)
+      void patchConfig({ style: { styleId: style.id } })
         .then(() => {
           renderButton()
           renderSelection()
@@ -459,7 +457,7 @@ function buildEngineSelect(): HTMLElement {
     item.append(engineIconImg(o.icon), el('span', 'style-select-item-name', o.name))
     item.addEventListener('click', () => {
       close()
-      void patchConfig({ engine: { ...config.engine, provider: o.id } }, true)
+      void patchConfig({ engine: { ...config.engine, provider: o.id } })
         .then(() => {
           renderButton()
           renderSelection()
@@ -524,7 +522,7 @@ function buildExpertSelect(): HTMLElement {
     )
     item.addEventListener('click', () => {
       close()
-      void patchConfig({ experts: { ...config.experts, activeId: expert.id } }, true)
+      void patchConfig({ experts: { ...config.experts, activeId: expert.id } })
         .then(() => {
           renderButton()
           renderSelection()
@@ -600,7 +598,7 @@ async function setSitePolicy(value: string): Promise<void> {
   if (value === 'never') neverTranslateSites.push(host)
   sitePolicy.disabled = true
   try {
-    await patchConfig({ general: { ...general, autoTranslateSites, neverTranslateSites } }, true)
+    await patchConfig({ general: { ...general, autoTranslateSites, neverTranslateSites } })
   } catch (error) {
     statusText.textContent = uiCopy('saveFailed', config.uiLang) + ' ' + errMsg(error)
   }
@@ -639,10 +637,7 @@ function buildControls(root: HTMLElement): void {
   }
   modeSel.value = config.general.displayMode
   modeSel.addEventListener('change', () => {
-    void patchConfig(
-      { general: { ...config.general, displayMode: modeSel.value as Config['general']['displayMode'] } },
-      true,
-    ).catch(ignore)
+    void patchConfig({ general: { ...config.general, displayMode: modeSel.value as Config['general']['displayMode'] } }).catch(ignore)
   })
   section.append(buildRow(t('popup.displayMode', ui, '显示模式'), modeSel, 'displayMode'))
 
@@ -657,17 +652,17 @@ function buildControls(root: HTMLElement): void {
     buildQuickSwitch(
       t('popup.hover', ui, '悬停翻译'),
       config.hover.enabled,
-      on => patchConfig({ hover: { ...config.hover, enabled: on } }, false),
+      on => patchConfig({ hover: { ...config.hover, enabled: on } }),
     ),
     buildQuickSwitch(
       t('popup.selection', ui, '划词翻译'),
       config.selection.enabled,
-      on => patchConfig({ selection: { ...config.selection, enabled: on } }, false),
+      on => patchConfig({ selection: { ...config.selection, enabled: on } }),
     ),
     buildQuickSwitch(
       t('popup.floatingBall', ui, '悬浮球'),
       config.floatingBall.enabled,
-      on => patchConfig({ floatingBall: { enabled: on } }, false),
+      on => patchConfig({ floatingBall: { enabled: on } }),
     ),
   )
 

@@ -1,5 +1,5 @@
 // 生词高亮：把生词本中的词在页面上包 <mark>，悬停显示释义。
-import type { BgResponse, WordItem } from '../shared/protocol'
+import type { BgResponse, HighlightWord } from '../shared/protocol'
 
 let tip: HTMLElement | null = null
 let revision = 0
@@ -17,7 +17,7 @@ function removeHighlights(root: ParentNode = document) {
   })
 }
 
-function buildMatcher(words: WordItem[]): RegExp | null {
+function buildMatcher(words: HighlightWord[]): RegExp | null {
   const parts = words
     .map((w) => w.word.trim())
     .filter((w) => w.length >= 2)
@@ -33,12 +33,12 @@ function buildMatcher(words: WordItem[]): RegExp | null {
   return new RegExp(`(${parts.join('|')})`, 'gi')
 }
 
-function showTip(target: HTMLElement, word: WordItem) {
+function showTip(target: HTMLElement, word: HighlightWord) {
   hideTip()
   tip = document.createElement('div')
   tip.className = 'tv-hl-tip'
   tip.setAttribute('data-tv-owned', '1')
-  tip.textContent = `${word.word}${word.translation ? ` — ${word.translation}` : ''}${word.context ? `\n${word.context.slice(0, 120)}` : ''}`
+  tip.textContent = `${word.word}${word.translation ? ` — ${word.translation}` : ''}`
   document.body.appendChild(tip)
   const rect = target.getBoundingClientRect()
   tip.style.top = `${rect.bottom + window.scrollY + 4}px`
@@ -54,8 +54,8 @@ export async function applyHighlights(enabled: boolean) {
   const request = ++revision
   removeHighlights()
   if (!enabled) return
-  let resp: BgResponse<WordItem[]>
-  try { resp = await chrome.runtime.sendMessage({ kind: 'getWords' }) }
+  let resp: BgResponse<HighlightWord[]>
+  try { resp = await chrome.runtime.sendMessage({ kind: 'getHighlights' }) }
   catch { return }
   if (!resp.ok || request !== revision) return
   const words = resp.data.filter((w) => w.word.trim().length >= 2)
@@ -91,7 +91,7 @@ export async function applyHighlights(enabled: boolean) {
       mark.textContent = m[0]
       const word = byWord.get(m[0].toLowerCase())
       if (word) {
-        mark.addEventListener('mouseenter', () => showTip(mark, word))
+        mark.addEventListener('mouseenter', event => { if (event.isTrusted) showTip(mark, word) })
         mark.addEventListener('mouseleave', hideTip)
       }
       frag.appendChild(mark)

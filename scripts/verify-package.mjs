@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { readFile, access } from 'node:fs/promises'
+import { readFile, readdir, access } from 'node:fs/promises'
 const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'))
 const pkg = JSON.parse(await readFile('package.json', 'utf8'))
 assert.equal(manifest.version, pkg.version, 'Package and manifest versions must agree')
 assert.equal(pkg.name, 'foxtranslate')
+assert.equal(manifest.default_locale, 'en')
+assert.deepEqual((await readdir('dist/_locales')).sort(), ['en', 'zh_CN'])
 const en = JSON.parse(await readFile('dist/_locales/en/messages.json', 'utf8'))
 assert.ok(en.extName.message.includes('Foxtranslate'))
 for (const page of ['popup', 'options', 'onboarding', 'files', 'review', 'privacy']) await access('dist/' + page + '.html')

@@ -9,7 +9,7 @@
  * PLATFORM_SPECS 一张表，稳定属性（data-caption-text / data-tid）优先、混淆类名兜底。
  */
 import { getSubtitlesConfig, translateText } from './types'
-import { normalizeConfig, type Config } from '../shared/config'
+import { watchPageConfig, type PageConfig } from '../shared/pageConfig'
 
 // ==================== 常量 ====================
 
@@ -145,7 +145,7 @@ const PANEL_CSS = `
  * stopRuntime 停止 observer 并清理面板，回到会议时重新启动。
  */
 class MeetingSession {
-  private config: Config
+  private config: PageConfig
   private readonly platform: PlatformSpec
   private observer: MutationObserver | null = null
   private throttleTimer: ReturnType<typeof setTimeout> | undefined
@@ -167,7 +167,7 @@ class MeetingSession {
   private lastSignature = ''
   private cues: Cue[] = []
 
-  constructor(platform: PlatformSpec, config: Config) {
+  constructor(platform: PlatformSpec, config: PageConfig) {
     this.platform = platform
     this.config = config
   }
@@ -195,7 +195,7 @@ class MeetingSession {
   }
 
   /** 配置热更新：目标语言变化时清缓存强制重译 */
-  updateConfig(config: Config): void {
+  updateConfig(config: PageConfig): void {
     const langChanged = config.general.targetLang !== this.config.general.targetLang
     this.config = config
     if (langChanged) {
@@ -489,7 +489,7 @@ let booted = false
 /**
  * 会议字幕翻译入口（content 引导调用一次，重复调用幂等）。
  * config.subtitles.enabled && config.subtitles.meet 未同时开启时不启动任何
- * observer / 面板（直接返回）；storage.onChanged 热开关：开启即启动、关闭即停止并还原现场。
+ * observer / 面板（直接返回）；配置变化时启动或停止并还原现场。
  */
 export function startMeetings(): void {
   if (booted) return
@@ -497,7 +497,7 @@ export function startMeetings(): void {
   const platform = detectPlatform(location.hostname, location.pathname)
   if (!platform) return
   let session: MeetingSession | null = null
-  const apply = (config: Config | null): void => {
+  const apply = (config: PageConfig | null): void => {
     const enabled = !!config && config.subtitles.enabled && config.subtitles.meet
     if (!enabled) {
       session?.dispose()
@@ -510,9 +510,10 @@ export function startMeetings(): void {
       session.start()
     }
   }
-  void getSubtitlesConfig().then(apply)
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes['tv:config_v1']) return
-    apply(normalizeConfig(changes['tv:config_v1'].newValue))
+  let received = false
+  watchPageConfig(config => {
+    received = true
+    apply(config)
   })
+  void getSubtitlesConfig().then(config => { if (!received) apply(config) })
 }

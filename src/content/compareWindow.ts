@@ -7,7 +7,7 @@
 // 两处类名与 token 值保持一致（:root 的 --tv-* 自定义属性可继承进 shadow，
 // 内联样式用 var(..., 兜底值) 引用，content.css 那份作为规范副本维护）。
 
-import { DEFAULT_CONFIG, type Config } from '../shared/config'
+import { DEFAULT_PAGE_CONFIG, getPageConfig, type PageConfig } from '../shared/pageConfig'
 import type { BgResponse } from '../shared/protocol'
 import { ct } from './uiLang'
 import { protectExtensionUi } from '../shared/trustedEvents'
@@ -132,7 +132,7 @@ const SHADOW_CSS = `
 
 let host: HTMLElement | null = null
 let shadow: ShadowRoot | null = null
-let currentConfig: Config = DEFAULT_CONFIG
+let currentConfig: PageConfig = DEFAULT_PAGE_CONFIG
 
 async function bg<T>(msg: unknown): Promise<T> {
   const resp = (await chrome.runtime.sendMessage(msg)) as BgResponse<T>
@@ -235,9 +235,9 @@ function runCompare(text: string): void {
 async function openWindow(initialText: string): Promise<void> {
   closeWindow()
   try {
-    currentConfig = await bg<Config>({ kind: 'getConfig' })
+    currentConfig = await getPageConfig()
   } catch {
-    currentConfig = DEFAULT_CONFIG
+    currentConfig = DEFAULT_PAGE_CONFIG
   }
 
   host = document.createElement('div')

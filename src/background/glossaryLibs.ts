@@ -14,8 +14,10 @@
 
 import type { Config, GlossaryTerm, CustomGlossaryLibrary } from '../shared/config'
 import { langName } from '../core/langs'
+import { maskSensitive } from '../core/mask'
 import { getFetch, httpError } from './engines/fetch'
 import { scheduleRequest } from './requestPolicy'
+import { assertHostPermission, parseHttpEndpoint } from '../shared/endpoint'
 
 // ── 内置库索引 ────────────────────────────────────────────────────────────────
 
@@ -33,11 +35,15 @@ interface BuiltinIndex {
 
 let indexCache: BuiltinLibraryMeta[] | null = null
 const libCache = new Map<string, GlossaryTerm[]>()
+let effective: { key: string; terms: Promise<GlossaryTerm[]>; failed: boolean } | undefined
+let bySnapshot = new WeakMap<GlossaryTerm[], WeakMap<Config['glossaryLibs'], Promise<GlossaryTerm[]>>>()
 
 /** 测试用：清空内存缓存（索引 + 库数据）。 */
 export function resetGlossaryLibCaches(): void {
   indexCache = null
   libCache.clear()
+  effective = undefined
+  bySnapshot = new WeakMap()
 }
 
 function glossaryUrl(path: string): string {
@@ -156,7 +162,12 @@ export async function loadBuiltinLibrary(id: string): Promise<GlossaryTerm[]> {
  * 同名 src（大小写不敏感）先声明者优先；结果按 src 长度降序（长词优先匹配）。
  * 内置库加载失败不阻断翻译（跳过该库）。
  */
-export async function resolveEffectiveGlossary(config: Config): Promise<GlossaryTerm[]> {
+export function resolveEffectiveGlossary(config: Config): Promise<GlossaryTerm[]> {
+  const source = config.glossary
+  const libraries = config.glossaryLibs
+  let snapshots = bySnapshot.get(source)
+  const previous = snapshots?.get(libraries)
+  if (previous) return previous
   const groups: GlossaryTerm[][] = []
   groups.push(Array.isArray(config.glossary) ? config.glossary : [])
 
@@ -169,13 +180,44 @@ export async function resolveEffectiveGlossary(config: Config): Promise<Glossary
     if (Array.isArray(lib.terms) && lib.terms.length > 0) groups.push(lib.terms)
   }
 
-  const builtinIds = Object.keys(enabled).filter((id) => enabled[id])
+  const customIds = new Set(custom.map(lib => lib?.id))
+  const builtinIds = Object.keys(enabled).filter(id => enabled[id] && !customIds.has(id))
+  // Config is read from Chrome storage on each message, so object identity is not stable.
+  const key = JSON.stringify([groups, builtinIds])
+  if (!effective || effective.key !== key) {
+    const entry = { key, failed: false, terms: mergeEffectiveGlossary(groups, builtinIds, () => {
+      entry.failed = true
+      if (effective === entry) effective = undefined
+    }) }
+    effective = entry
+  }
+  const entry = effective
+  if (!snapshots) {
+    snapshots = new WeakMap()
+    bySnapshot.set(source, snapshots)
+  }
+  const entries = snapshots
+  const promise = entry.terms.then(terms => {
+    // A failed library load is allowed to retry on the next translation.
+    if (entry.failed) entries.delete(libraries)
+    return terms
+  }, error => {
+    entries.delete(libraries)
+    if (effective === entry) effective = undefined
+    throw error
+  })
+  entries.set(libraries, promise)
+  return promise
+}
+
+async function mergeEffectiveGlossary(groups: GlossaryTerm[][], builtinIds: string[], onLoadError: () => void): Promise<GlossaryTerm[]> {
   if (builtinIds.length > 0) {
     const loaded = await Promise.all(
       builtinIds.map(async (id) => {
         try {
           return await loadBuiltinLibrary(id)
         } catch {
+          onLoadError()
           return [] // 单库失败跳过，不影响其余
         }
       }),
@@ -263,9 +305,12 @@ export async function extractTermsWithAI(
   const fallback =
     provider === 'deepseek' ? 'https://api.deepseek.com/v1' : 'https://api.openai.com/v1'
   const base = (ep.endpoint || fallback).replace(/\/+$/, '')
+  await assertHostPermission(parseHttpEndpoint(base, true))
   return scheduleRequest(config, async () => {
     const res = await getFetch()(`${base}/chat/completions`, {
       method: 'POST',
+      redirect: 'error',
+      credentials: 'omit',
       signal: AbortSignal.timeout(config.engine.timeoutMs),
       headers: {
         Authorization: `Bearer ${config.engine.keys.openai}`,
@@ -277,7 +322,7 @@ export async function extractTermsWithAI(
         stream: false,
         messages: [
           { role: 'system', content: extractSystemPrompt(langName(targetLang, 'en')) },
-          { role: 'user', content: text.slice(0, MAX_EXTRACT_INPUT) },
+          { role: 'user', content: (config.mask.enabled ? maskSensitive(text).masked : text).slice(0, MAX_EXTRACT_INPUT) },
         ],
       }),
     })

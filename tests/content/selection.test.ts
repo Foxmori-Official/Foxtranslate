@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 import { initSelection } from '../../src/content/selection'
-import { DEFAULT_CONFIG } from '../../src/shared/config'
+import { DEFAULT_PAGE_CONFIG } from '../../src/shared/pageConfig'
 import type { BgRequest, BgResponse, TranslateResult } from '../../src/shared/protocol'
 import * as trusted from '../../src/shared/trustedEvents'
 
@@ -36,7 +36,7 @@ it('keeps the latest translation when a previous request finishes later', async 
   const range = document.createRange()
   range.selectNodeContents(paragraph)
   Range.prototype.getBoundingClientRect = () => new DOMRect(40, 40, 60, 20)
-  initSelection(structuredClone(DEFAULT_CONFIG))
+  initSelection(structuredClone(DEFAULT_PAGE_CONFIG))
   window.getSelection()!.addRange(range)
   paragraph.dispatchEvent(new MouseEvent('pointerup', { button: 0, bubbles: true }))
   await vi.advanceTimersByTimeAsync(220)

@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG, type Config } from '../shared/config'
 import { FOXMORI_API } from '../shared/foxmori'
+import { assertHostPermission, parseHttpEndpoint } from '../shared/endpoint'
 
 export async function fetchProviderModels(config: Config, provider: string, fetcher: typeof fetch = fetch): Promise<string[]> {
   if (provider !== 'foxmori' && provider !== 'openai' && provider !== 'deepseek') {
@@ -11,10 +12,8 @@ export async function fetchProviderModels(config: Config, provider: string, fetc
   const key = provider === 'foxmori' ? config.engine.keys.foxmori : config.engine.keys.openai
   if (!key.trim()) throw new Error('请先配置 API Key。')
 
-  const url = new URL(endpoint)
-  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
-    throw new Error('请填写有效的 API Base URL。')
-  }
+  const url = parseHttpEndpoint(endpoint, true)
+  await assertHostPermission(url)
   url.pathname = url.pathname.replace(/\/+$/, '') + '/models'
   const response = await fetcher(url.href, {
     headers: { Authorization: 'Bearer ' + key.trim(), Accept: 'application/json' },

@@ -2,8 +2,8 @@
  * background/translate.ts — translate() 唯一入口管线（契约 ARCHITECTURE.md §7）。
  *
  *   cache.get → mask → glossary → 引擎路由（免费链冷却降级 / BYOK 单发 /
- *   supportsBatch + batch.enabled 走 BatchQueue）→ restore glossary → restore PII
- *   → cache.set（key 含 promptSig=glossarySignature，术语表变更即失效）
+ *   supportsBatch + batch.enabled 走 BatchQueue）→ restore placeholders
+ *   → cache.set（key 含有效术语表的摘要，术语表变更即失效）
  *
  * 免费链（OpenImmersive 式）：配置引擎优先，失败冷却 60s 沉底，依次尝试
  * FREE_CHAIN 其余引擎，全失败抛合并错误；BYOK 不进链（配置错误不静默掩盖）。
@@ -11,12 +11,13 @@
 
 import type { Config } from '../shared/config'
 import type { AiChatMessage } from '../shared/protocol'
+import { assertHostPermission, parseHttpEndpoint } from '../shared/endpoint'
 import { isAiProvider } from '../shared/engines'
-import { maskSensitive, restoreSensitive, type MaskEntity } from '../core/mask'
+import { maskSensitive, type MaskEntity } from '../core/mask'
+import { restorePlaceholders } from '../core/placeholders'
 import {
-  applyGlossary,
-  restoreGlossary,
-  glossarySignature,
+  compileGlossary,
+  type CompiledGlossary,
   type GlossaryEntity,
   type GlossaryTerm,
 } from '../core/glossary'
@@ -30,7 +31,7 @@ import { getFetch, httpError } from './engines/fetch'
 import { cacheKey, get as cacheGet, set as cacheSet } from './cache'
 import { getBatchQueue } from './batch'
 import { resolveEffectiveGlossary } from './glossaryLibs'
-import { BatchFormatError, scheduleRequest, translationIdentity } from './requestPolicy'
+import { BatchFormatError, stableDigest, scheduleRequest, translationIdentity } from './requestPolicy'
 
 export interface TranslateOptions {
   bypassCache?: boolean
@@ -66,8 +67,8 @@ interface Prepared {
   glossEntities: GlossaryEntity[]
 }
 
-/** 正序：mask → glossary（占位符发送给引擎）。terms 为 resolveEffectiveGlossary 合并后的有效术语。 */
-function prepare(text: string, config: Config, terms: GlossaryTerm[]): Prepared {
+/** 正序：mask → glossary（占位符发送给引擎）。 */
+function prepare(text: string, config: Config, glossary: CompiledGlossary): Prepared {
   let maskEntities: MaskEntity[] = []
   let t = text
   if (config.mask.enabled) {
@@ -76,21 +77,30 @@ function prepare(text: string, config: Config, terms: GlossaryTerm[]): Prepared 
     maskEntities = m.entities
   }
   let glossEntities: GlossaryEntity[] = []
-  if (terms.length > 0) {
-    const g = applyGlossary(t, terms)
+  if (glossary.signature) {
+    const g = glossary.apply(t)
     t = g.text
     glossEntities = g.entities
   }
   return { text: t, maskEntities, glossEntities }
 }
 
-/** 逆序：restore glossary → restore PII（占位符文本即 key，容错正则）。 */
+/** Restore only tokens from the engine response, without reparsing restored values. */
 function restorePrepared(prep: Prepared, translated: string): string {
-  return restoreSensitive(restoreGlossary(translated, prep.glossEntities), prep.maskEntities)
+  return restorePlaceholders(translated, prep.maskEntities, prep.glossEntities)
 }
 
-function sigOf(terms: GlossaryTerm[]): string {
-  return glossarySignature(terms)
+const glossaryMatchers = new WeakMap<GlossaryTerm[], { matcher: CompiledGlossary; signature: Promise<string> }>()
+
+async function activeGlossary(config: Config) {
+  const terms = await resolveEffectiveGlossary(config)
+  let active = glossaryMatchers.get(terms)
+  if (!active) {
+    const matcher = compileGlossary(terms)
+    active = { matcher, signature: matcher.signature ? stableDigest(matcher.signature).then(hash => `glossary2:${hash}`) : Promise.resolve('') }
+    glossaryMatchers.set(terms, active)
+  }
+  return { matcher: active.matcher, signature: await active.signature }
 }
 
 // ── 全页摘要上下文感知（仅 AI 引擎生效）─────────────────────────────────────
@@ -143,25 +153,28 @@ function effectiveContext(opts: TranslateOptions, providerId: string): string | 
   return isAiEngine(providerId) ? ctx : undefined
 }
 
+function maskOutbound(text: string, config: Config): string {
+  return config.mask.enabled ? maskSensitive(text).masked : text
+}
+
 /**
  * 缓存 key：promptSig = 有效术语签名；有页面上下文时追加 `ctx:textHash(context)`，
  * 不同页面（上下文不同）的同文翻译不串缓存；可配置引擎额外包含配置摘要。
  */
-async function keyFor(
+async function cacheNamespace(
   config: Config,
-  from: string,
-  to: string,
-  text: string,
-  terms: GlossaryTerm[],
+  glossarySig: string,
   context?: string,
   exactProvider = false,
-): Promise<string> {
-  const sig = context ? `${sigOf(terms)}|ctx:${textHash(context)}` : sigOf(terms)
+): Promise<{ engine: string; promptSig: string }> {
+  const promptSig = context ? `${glossarySig}|ctx:${textHash(context)}` : glossarySig
   const { provider } = config.engine
   let engine = FREE_CHAIN.includes(provider) ? provider : `${provider}:cfg3:${await translationIdentity(config)}`
+  // Older masked results may include multiple restored copies, and free engines previously shared this cache with mask-off requests.
+  if (config.mask.enabled) engine = `${engine}:mask2`
   // The default free chain may have cached a translation from a different engine.
   if (exactProvider && FREE_CHAIN.includes(provider)) engine = `exact:${engine}`
-  return cacheKey({ engine, from, to, text, promptSig: sig })
+  return { engine, promptSig }
 }
 
 // ── 引擎路由 ────────────────────────────────────────────────────────────────
@@ -245,16 +258,7 @@ export function endpointUrlOf(config: Config): string | null {
 async function assertEndpointPermission(config: Config): Promise<void> {
   const url = endpointUrlOf(config)
   if (!url) return
-  let origin: string
-  try {
-    origin = new URL(url).origin
-  } catch {
-    throw new Error(`接口地址无效：${url}`)
-  }
-  const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] })
-  if (!granted) {
-    throw new Error(`缺少对 ${origin} 的访问权限，请在设置页保存引擎配置以授予权限`)
-  }
+  await assertHostPermission(parseHttpEndpoint(url, config.engine.provider !== 'custom'))
 }
 
 /**
@@ -268,7 +272,7 @@ async function routePrepared(
   from: string,
   to: string,
   config: Config,
-  terms: GlossaryTerm[],
+  glossarySig: string,
   ctxSig?: string,
   options: Pick<TranslateOptions, 'exactProvider' | 'immediate' | 'scope'> = {},
 ): Promise<EngineResult> {
@@ -285,7 +289,7 @@ async function routePrepared(
     // 队列 key 带术语表签名 + 上下文签名：system prompt 内容不同批不可混排
     const queueKey =
       (options.scope === 'youtube' ? 'youtube|' : '') +
-      `${engine.id}|${from}|${to}|${textHash(sigOf(terms))}` +
+      `${engine.id}|${from}|${to}|${glossarySig}` +
       (ctxSig ? `|${textHash(ctxSig)}` : '')
     const queue = getBatchQueue(
       queueKey,
@@ -320,15 +324,16 @@ export async function translate(
 ): Promise<EngineResult> {
   const from = opts.sourceLang ?? config.general.sourceLang ?? 'auto'
   const to = opts.targetLang
-  const terms = await resolveEffectiveGlossary(config)
+  const glossary = await activeGlossary(config)
   const context = effectiveContext(opts, config.engine.provider)
-  const key = await keyFor(config, from, to, text, terms, context, opts.exactProvider)
+  const namespace = await cacheNamespace(config, glossary.signature, context, opts.exactProvider)
+  const key = cacheKey({ ...namespace, from, to, text })
   const cached = await cacheGet(key)
   if (!opts.bypassCache && cached !== undefined) return { text: cached }
 
-  const prep = prepare(text, config, terms)
-  const effConfig = context ? withPageContext(config, context) : config
-  const routed = await routePrepared(prep.text, from, to, effConfig, terms, context, opts)
+  const prep = prepare(text, config, glossary.matcher)
+  const effConfig = context ? withPageContext(config, maskOutbound(context, config)) : config
+  const routed = await routePrepared(prep.text, from, to, effConfig, glossary.signature, context, opts)
   const restored = restorePrepared(prep, routed.text)
   await cacheSet(key, restored)
   return { text: restored, detectedLang: routed.detectedLang }
@@ -342,29 +347,32 @@ export async function translateTexts(
 ): Promise<string[]> {
   const from = opts.sourceLang ?? config.general.sourceLang ?? 'auto'
   const to = opts.targetLang
-  const terms = await resolveEffectiveGlossary(config)
+  const glossary = await activeGlossary(config)
   const context = effectiveContext(opts, config.engine.provider)
-  const effConfig = context ? withPageContext(config, context) : config
+  const namespace = await cacheNamespace(config, glossary.signature, context)
+  const effConfig = context ? withPageContext(config, maskOutbound(context, config)) : config
   const engine = resolveEngine(config.engine.provider, { config: effConfig })
   const results: string[] = new Array<string>(texts.length)
   const preps: Array<Prepared | undefined> = new Array<Prepared | undefined>(texts.length)
+  const keys: string[] = []
   const pendingIdx: number[] = []
 
   for (let i = 0; i < texts.length; i++) {
-    const key = await keyFor(config, from, to, texts[i], terms, context)
+    const key = cacheKey({ ...namespace, from, to, text: texts[i] })
+    keys.push(key)
     const cached = await cacheGet(key)
     if (cached !== undefined) {
       results[i] = cached
       continue
     }
-    preps[i] = prepare(texts[i], config, terms)
+    preps[i] = prepare(texts[i], config, glossary.matcher)
     pendingIdx.push(i)
   }
   if (pendingIdx.length === 0) return results
 
   const writeBack = async (i: number, restored: string): Promise<void> => {
     results[i] = restored
-    await cacheSet(await keyFor(config, from, to, texts[i], terms, context), restored)
+    await cacheSet(keys[i], restored)
   }
 
   if (engine.supportsBatch && config.batch.enabled) {
@@ -402,7 +410,7 @@ export async function translateTexts(
   await Promise.all(
     pendingIdx.map(async (i) => {
       const prep = preps[i] as Prepared
-      const routed = await routePrepared(prep.text, from, to, effConfig, terms, context)
+      const routed = await routePrepared(prep.text, from, to, effConfig, glossary.signature, context)
       await writeBack(i, restorePrepared(prep, routed.text))
     }),
   )
@@ -416,7 +424,7 @@ export async function translateTexts(
 export async function detectLang(text: string, config: Config): Promise<string | undefined> {
   try {
     const googleConfig = { ...config, engine: { ...config.engine, provider: 'google' } }
-    const res = await request(googleConfig, signal => ENGINES.google.translate(text, 'auto', config.general.targetLang, { config: googleConfig }, signal))
+    const res = await request(googleConfig, signal => ENGINES.google.translate(maskOutbound(text, config), 'auto', config.general.targetLang, { config: googleConfig }, signal))
     if (res.detectedLang) return res.detectedLang
   } catch {
     // 网络失败 → 本地推断
@@ -520,6 +528,8 @@ async function postChatCompletion(
   return request(config, async signal => {
     const res = await getFetch()(`${base}/chat/completions`, {
       method: 'POST',
+      redirect: 'error',
+      credentials: 'omit',
       signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -570,7 +580,7 @@ export async function aiAssist(
     config,
     [
       { role: 'system', content: system },
-      { role: 'user', content: buildAssistUserMessage(text, context) },
+      { role: 'user', content: maskOutbound(buildAssistUserMessage(text, context), config) },
     ],
     0.1,
     'aiAssist',
@@ -594,7 +604,7 @@ export async function aiChat(messages: AiChatMessage[], config: Config): Promise
   if (messages.length === 0) throw new Error('aiChat: empty messages')
   return postChatCompletion(
     config,
-    [{ role: 'system', content: AI_CHAT_SYSTEM }, ...messages],
+    [{ role: 'system', content: AI_CHAT_SYSTEM }, ...messages.map(message => ({ ...message, content: maskOutbound(message.content, config) }))],
     0.3,
     'aiChat',
   )

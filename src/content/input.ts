@@ -9,12 +9,12 @@ import type { BgResponse, TranslateResult } from '../shared/protocol'
 import { ct } from './uiLang'
 import { isTrustedInteraction } from '../shared/trustedEvents'
 
-let config: Config | null = null
+let config: Pick<Config, 'input'> | null = null
 let lastKeyTime = 0
 let spaceCount = 0
 let keydownHandler: ((e: KeyboardEvent) => void) | null = null
 
-export function setInputConfig(c: Config) {
+export function setInputConfig(c: Pick<Config, 'input'>) {
   config = c
 }
 
@@ -168,7 +168,7 @@ async function translateInput(el: HTMLElement, raw: string, targetLang: string) 
   }
 }
 
-export function initInput(c: Config) {
+export function initInput(c: Pick<Config, 'input'>) {
   config = c
   // 幂等：重复初始化先移除旧监听，避免重复触发
   if (keydownHandler) document.removeEventListener('keydown', keydownHandler)

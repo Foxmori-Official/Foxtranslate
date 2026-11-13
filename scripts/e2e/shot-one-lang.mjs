@@ -4,7 +4,7 @@
 //   3. chrome.tabs.sendMessage 触发整页翻译，轮询至译文稳定且零错误
 //   4. 截图×3：双语整页 / 划词气泡 / 设置页（目标界面语言）
 // 用法：node shot-one-lang.mjs <uiLang> <targetLang> <outDir> [pagePath]
-//   例：node shot-one-lang.mjs ja ja ja test-page-shot.html
+//   例：node shot-one-lang.mjs zh-CN ja zh_CN test-page-shot.html
 // 前置：Edge 已带 --remote-debugging-port=9222 启动、扩展已加载、8137 服务已运行
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'

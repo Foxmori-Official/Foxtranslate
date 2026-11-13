@@ -117,7 +117,9 @@ try {
   await noHorizontalOverflow(guide)
   await guide.setViewportSize({ width: 1440, height: 900 })
   await centered(guide, '.ob-card')
-  await guide.getByRole('combobox', { name: '界面语言', exact: true }).selectOption('en')
+  const interfaceLanguage = guide.getByRole('combobox', { name: '界面语言', exact: true })
+  assert.deepEqual(await interfaceLanguage.locator('option').evaluateAll(options => options.map(option => option.value)), ['auto', 'en', 'zh-CN'])
+  await interfaceLanguage.selectOption('en')
   await guide.getByRole('heading', { name: 'Welcome to Foxtranslate' }).waitFor()
   assert.equal(await guide.locator('html').getAttribute('lang'), 'en')
   assert.equal(await guide.getByRole('combobox', { name: 'Target language', exact: true }).inputValue(), 'zh-CN')
@@ -151,7 +153,7 @@ try {
   })
   assert.equal(await content.locator('.tv-ball').textContent(), '')
   const ballIcon = await content.locator('.tv-ball > img').getAttribute('src')
-  await config({ uiLang: 'de' })
+  assert.equal((await config({ uiLang: 'de' })).uiLang, 'en')
   assert.equal(await content.locator('.tv-ball > img').getAttribute('src'), ballIcon)
   await config({ uiLang: 'zh-CN' })
   const contentTab = await worker.evaluate(async () => {
@@ -215,7 +217,7 @@ try {
   await bubble.getByRole('button', { name: '关闭', exact: true }).click()
 
   // Popup still uses the actual active ordinary page.
-  await config({ uiLang: 'de', general: { ...stored['tv:config_v1'].general, targetLang: 'zh-CN' } })
+  await config({ uiLang: 'en', general: { ...stored['tv:config_v1'].general, targetLang: 'zh-CN' } })
   const popup = await browser.newPage()
   await popup.setViewportSize({ width: 360, height: 540 })
   await content.bringToFront()
@@ -225,12 +227,12 @@ try {
   assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().width), 360)
   assert.equal(await popup.locator('.popup-footer .fox-nav a').count(), 3)
   assert.equal(await popup.locator('.popup-header .fox-nav a').count(), 0)
-  for (const label of ['Dokumente', 'Vokabeln', 'Einstellungen']) {
+  for (const label of ['Documents', 'Vocabulary', 'Settings']) {
     assert.equal(await popup.getByText(label, { exact: true }).isVisible(), true)
   }
   assert.equal(await popup.locator('a[href$="onboarding.html"]').count(), 0)
   assert.equal(await popup.getByRole('switch').count(), 3)
-  assert.equal(await popup.locator('html').getAttribute('lang'), 'de')
+  assert.equal(await popup.locator('html').getAttribute('lang'), 'en')
   assert.equal(await popup.locator('[data-row="expert"]').isVisible(), false)
   const styles = popup.locator('[data-row="style"] .style-select-btn')
   await styles.focus()
@@ -240,7 +242,7 @@ try {
   await popup.waitForFunction(() => !document.querySelector('.style-select.open'))
   assert.ok(await styles.evaluate(el => el === document.activeElement))
   assert.equal(await styles.locator('.swatch').evaluate(el => getComputedStyle(el).filter), 'blur(1.5px)')
-  await capture(popup, 'foxtranslate-popup-de')
+  await capture(popup, 'foxtranslate-popup-en')
   // Selecting a site policy does not translate the current page.
   await popup.locator('.site-policy').selectOption('never')
   await popup.waitForFunction(() => !document.querySelector('.site-policy').disabled)

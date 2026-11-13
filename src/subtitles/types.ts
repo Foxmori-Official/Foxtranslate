@@ -1,5 +1,5 @@
 // 字幕翻译共享契约：YouTube 与会议字幕共用同一数据模型
-import type { Config } from '../shared/config'
+import { getPageConfig, type PageConfig } from '../shared/pageConfig'
 import type { BgRequest, BgResponse } from '../shared/protocol'
 
 export interface SubtitleCue {
@@ -25,10 +25,9 @@ export async function translateText(
   return resp.data.text
 }
 
-export async function getSubtitlesConfig(): Promise<Config | null> {
+export async function getSubtitlesConfig(): Promise<PageConfig | null> {
   try {
-    const resp = (await chrome.runtime.sendMessage({ kind: 'getConfig' })) as BgResponse<Config>
-    return resp.ok ? resp.data : null
+    return await getPageConfig()
   } catch {
     return null
   }

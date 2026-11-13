@@ -21,11 +21,11 @@ Foxtranslate 是开源双语翻译扩展。扩展不要求注册账号，不内�
 
 ### 脱敏范围
 
-可选脱敏在翻译管线中识别邮箱、电话、银行卡、身份证和部分 API Key 模式，先用占位符替换，收到译文后尝试还原。它不能保证识别所有敏感内容。语言检测、AI 辅助和额外页面上下文等路径可能具有不同的处理方式，不能把脱敏开关视为全面保密保证。
+可选脱敏在待译文本、页面上下文、语言检测和 AI 功能输入中识别邮箱、电话、银行卡、身份证及部分 API Key 和私钥格式。识别到的内容会在发送前替换为占位符；翻译结果中每个原文占位符最多还原一次。脱敏无法识别所有敏感内容，也不会移除用于服务鉴权的 API Key。
 
 ### 本地存储
 
-设置、API Key、生词、复习记录与翻译缓存保存在 `chrome.storage.local`。本地存储不是加密保险箱。Key 用于向用户配置的服务认证，译文缓存可能包含还原后的敏感内容。
+设置、API Key、生词、复习记录与翻译缓存保存在 `chrome.storage.local`。扩展将这份存储限制在自己的界面和后台，网页内容脚本通过后台获取所需的控件设置和高亮词条。本地存储不是加密保险箱，译文缓存可能包含还原后的敏感内容。
 
 ### 控制与删除
 
@@ -54,11 +54,11 @@ Foxtranslate is an open-source bilingual translation extension. The extension re
 
 ### Optional masking
 
-The translation pipeline can replace recognized email, phone, bank-card, ID and API-key patterns with placeholders, then attempt to restore them in the returned translation. Detection is incomplete by nature. Language detection, AI actions and additional page context may follow different processing paths. Masking is not a comprehensive confidentiality guarantee.
+Optional masking replaces recognized email, phone, bank-card, ID, API-key and private-key patterns in translation text, page context, language detection and AI inputs before sending them. Each source placeholder is restored at most once in a translation. Masking cannot identify every secret and does not remove the API key used to authenticate with the selected service.
 
 ### Local storage
 
-Settings, API keys, saved vocabulary, review records and translation caches use `chrome.storage.local`. This storage is not an encrypted vault. Keys authenticate requests to configured services. Translation caches can contain restored sensitive text.
+Settings, API keys, saved vocabulary, review records and translation caches use `chrome.storage.local`, restricted to extension pages and the background worker. Content scripts request the settings and vocabulary highlights they need from the worker. This storage is not an encrypted vault. Translation caches can contain restored sensitive text.
 
 ### Control and deletion
 

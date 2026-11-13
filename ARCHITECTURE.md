@@ -87,6 +87,7 @@ tests/                     # vitest，core/background 单测
 - 占位符：`{{n}}`（块内行内元素占位，n 从 1 递增）、`__GLOSSARY_N__`（术语）、`__PII_<TYPE>_<N>__`（敏感信息）。
 - CSS 类前缀 `tv-`，颜色等用 CSS 变量 `--tv-*` 便于换肤。
 - 存储键：`tv:config_v1`、`tv:words_v1`、`tv:cache_v1`、`tv:stats_v1`。
+- `storage.local` 限定为 `TRUSTED_CONTEXTS`。网页内容脚本读取 `getPageConfig` 和 `getHighlights`，后台只向各标签页同步精简配置或生词变更通知；完整配置与生词记录仅供扩展页面使用。
 - `tv:stats_v1` 独立保存翻译字数，首次读取从旧配置的 `stats` 迁移；内存累计后每 2 秒合并写入。`getConfig()` 返回合并后的当前统计，统计变化不触发配置广播。
 
 ## 5. Config 契约（shared/config.ts）
@@ -173,9 +174,13 @@ translate(text, targetLang, sourceLang):
      冷却 60s 沉底重试下一个；BYOK 不进链（配置错误不该被静默掩盖）
   5. LLM 引擎且 batch.enabled 且 supportsBatch → 走 BatchQueue（编号 JSON 协议：system 要求输出
      {"translations":[{"id":1,"text":"..."}]}，解析后按 id 对齐；仅批格式错误回退单发）
-  6. restore glossary → restore PII（容错正则，占位符文本即 key）
-  7. 写缓存（key 含 provider/配置 SHA-256/langpair/textHash/promptSig/glossarySig），独立累计翻译字数
+  6. 一次扫描还原术语与 PII 占位符；不再解析已还原内容，同一 PII token 最多还原一次
+  7. 写缓存（key 含 provider/配置 SHA-256/langpair/textHash/上下文摘要/术语表 SHA-256），独立累计翻译字数
 ```
+
+同一配置快照共用合并后的术语库和编译匹配器。词库扫描保留长词优先，支持连续中日韩文字和中英混排。整页翻译先建立视口观察器，再扫描候选；距视口 400px 内的段落才入队，动态变动合并后分批扫描。
+
+自定义端点使用 HTTP(S) 与浏览器主机授权；翻译、AI 和模型查询的可配置端点不跟随重定向。允许明确授权的本地或内网服务；主机授权不是 DNS 解析结果校验。
 
 请求调度覆盖批量、单条、失败回退和 AI 辅助。同一服务源与凭证共享并发预算，模型、语言对和字幕 scope 不增加额外槽位；当前字幕任务优先于尚未发出的普通请求。HTTP 错误不触发整批拆分重试，429 暂停同账户队列（Retry-After 上限 5 分钟，缺省 1 秒）。每账户最多等待 256 个请求，后台最多同时跟踪 64 个活动账户。
 

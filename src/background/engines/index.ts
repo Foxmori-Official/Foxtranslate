@@ -38,6 +38,9 @@ export const FREE_CHAIN = FREE_ENGINE_IDS
  * 未同步（无此配置）时落入 unknown engine 兜底报错。
  */
 export function resolveEngine(id: string, ctx: EngineContext): Engine {
+  // A translation can await glossary/cache work while another message loads a different
+  // configuration. Resolve dynamic endpoints from this request's snapshot, not that registry.
+  if (id.startsWith(CUSTOM_ENGINE_PREFIX)) syncCustomEngines(ctx.config)
   const engine = ENGINES[id]
   if (!engine) throw new Error(`resolveEngine: unknown engine "${id}"`)
   const setupError = builtinEngineSetupError(id, ctx.config.engine)
@@ -49,6 +52,7 @@ export function resolveEngine(id: string, ctx: EngineContext): Engine {
 
 /** 动态自定义引擎条目的 id 前缀（Config.engine.provider 形如 'custom:<entryId>'）。 */
 export const CUSTOM_ENGINE_PREFIX = 'custom:'
+let currentEntries: Config['engine']['customEngines'] | undefined
 
 /** 解析 entry.headersJson：空串/非法 JSON/非对象/非字符串值一律容错为空头表——
  * 脏配置不该拖垮整个注册表同步（设置页另有表单校验把关）。 */
@@ -76,6 +80,7 @@ function parseCustomHeaders(headersJson: string): Record<string, string> {
  * 配置变更后再次调用即整体换新，无陈旧闭包问题。
  */
 export function syncCustomEngines(config: Config): void {
+  if (currentEntries === config.engine.customEngines) return
   for (const key of Object.keys(ENGINES)) {
     if (key.startsWith(CUSTOM_ENGINE_PREFIX)) delete ENGINES[key]
   }
@@ -91,6 +96,7 @@ export function syncCustomEngines(config: Config): void {
       getHeaders: () => headers,
     })
   }
+  currentEntries = config.engine.customEngines
 }
 
 export type { Engine, EngineContext, EngineResult } from './types'

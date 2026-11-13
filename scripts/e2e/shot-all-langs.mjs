@@ -1,7 +1,7 @@
 // 9 语言商店截图批量运行器：
 //   每语言：优雅重启 Edge（防 CDP 截图挂起）→ Extensions.loadUnpacked 重载扩展
 //   → node shot-one-lang.mjs <uiLang> <targetLang> <dir> <page>
-// 用法：node shot-all-langs.mjs [langKey ...]   （缺省全部 9 种）
+// 用法：node shot-all-langs.mjs [langKey ...]   （缺省中英文）
 // 前置：8137 测试页服务已运行
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -18,14 +18,7 @@ const CDP = 'http://127.0.0.1:9222'
 
 // dir（输出目录名）→ { uiLang, targetLang, page }
 const LANGS = {
-  ja: { uiLang: 'ja', targetLang: 'ja', page: 'test-page-shot.html' },
-  ko: { ko: 'ko', targetLang: 'ko', page: 'test-page-shot.html', uiLang: 'ko' },
   zh_CN: { uiLang: 'zh-CN', targetLang: 'zh-CN', page: 'test-page-shot.html' },
-  zh_TW: { uiLang: 'zh-TW', targetLang: 'zh-TW', page: 'test-page-shot.html' },
-  de: { uiLang: 'de', targetLang: 'de', page: 'test-page-shot.html' },
-  es: { uiLang: 'es', targetLang: 'es', page: 'test-page-shot.html' },
-  fr: { uiLang: 'fr', targetLang: 'fr', page: 'test-page-shot.html' },
-  pt_BR: { uiLang: 'pt-BR', targetLang: 'pt', page: 'test-page-shot.html' },
   en: { uiLang: 'en', targetLang: 'en', page: 'test-page-zh.html' }, // 英文商店：中文原文 → 英文译文
 }
 

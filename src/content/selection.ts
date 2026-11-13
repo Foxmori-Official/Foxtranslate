@@ -1,18 +1,18 @@
 // 划词翻译：选区气泡（翻译 / AI 解析 / 收藏生词 / 朗读 / 复制）。
-import { DEFAULT_CONFIG, type Config } from '../shared/config'
+import { DEFAULT_PAGE_CONFIG, type PageConfig } from '../shared/pageConfig'
 import { isTrustedInteraction, protectExtensionUi } from '../shared/trustedEvents'
 import { ct } from './uiLang'
 import { fmt } from '../shared/i18n'
 import type { AiAssistAction, AiChatMessage, BgRequest, BgResponse, TranslateResult } from '../shared/protocol'
 import { COMMON_LANG_CODES, LANGS, langName, langNative } from '../core/langs'
-import { BUILTIN_ENGINES, builtinEngineSetupError } from '../shared/engines'
+import { BUILTIN_ENGINES } from '../shared/engines'
 import { outlineIcon } from '../shared/ui/icon'
 import { TtsPlayer } from './tts'
 
 let popup: HTMLElement | null = null
 let popupSize: ResizeObserver | null = null
 let hideTimer: ReturnType<typeof setTimeout> | null = null
-let currentConfig: Config | null = null
+let currentConfig: PageConfig | null = null
 
 // 朗读播放器单例：跨气泡共享，重复朗读自动中断旧播放
 const ttsPlayer = new TtsPlayer()
@@ -27,7 +27,7 @@ function setActionIcon(button: HTMLButtonElement, label: string, path: string): 
   button.replaceChildren(outlineIcon(path))
 }
 
-export function setSelectionConfig(config: Config) {
+export function setSelectionConfig(config: PageConfig) {
   currentConfig = config
 }
 
@@ -77,14 +77,14 @@ function contextAroundSelection(text: string): string {
   if (!sel || sel.rangeCount === 0) return text.slice(0, 160)
   const node = sel.anchorNode
   const block = node?.parentElement?.closest('p, li, h1, h2, h3, h4, h5, h6, td, blockquote, div')
-  const blockText = block?.textContent ?? text
+  const blockText = block instanceof HTMLElement ? block.innerText : text
   const idx = blockText.indexOf(text)
   if (idx < 0) return blockText.slice(0, 160)
   return blockText.slice(Math.max(0, idx - 60), idx + text.length + 60)
 }
 
 /** 朗读/停止切换：参数取 config.tts，长文本由 TtsPlayer 按句切分连播。 */
-function toggleSpeak(text: string, config: Config): void {
+function toggleSpeak(text: string, config: PageConfig): void {
   if (ttsPlayer.isPlaying()) {
     ttsPlayer.stop()
     return
@@ -116,7 +116,7 @@ function buildTargetPicker(targetLang: string): HTMLSelectElement {
     group.append(new Option(langNative(code), code))
   }
   select.append(common, other)
-  const initial = targetLang && targetLang !== 'auto' ? targetLang : DEFAULT_CONFIG.general.targetLang
+  const initial = targetLang && targetLang !== 'auto' ? targetLang : DEFAULT_PAGE_CONFIG.general.targetLang
   select.value = initial
   if (!select.value) {
     other.append(new Option(langNative(initial), initial))
@@ -125,31 +125,19 @@ function buildTargetPicker(targetLang: string): HTMLSelectElement {
   return select
 }
 
-function providerName(id: string, engine: Config['engine']): string {
+function providerName(id: string, engine: PageConfig['engine']): string {
   const builtin = BUILTIN_ENGINES.find(item => item.id === id)
   if (builtin) return ct(builtin.nameKey, builtin.zh)
   if (id === 'custom') return ct('cmp.engine.custom', '自定义')
-  return engine.customEngines.find(item => `custom:${item.id}` === id)?.name || id
+  return engine.choices.find(item => item.id === id)?.name || id
 }
 
-function buildEnginePicker(engine: Config['engine']): HTMLSelectElement {
+function buildEnginePicker(engine: PageConfig['engine']): HTMLSelectElement {
   const select = document.createElement('select')
   select.className = 'tv-sel-select tv-sel-engine'
   select.setAttribute('aria-label', ct('popup.engine', '翻译引擎'))
   select.add(new Option('', ''))
-  for (const builtin of BUILTIN_ENGINES) {
-    if (!builtinEngineSetupError(builtin.id, engine)) {
-      select.add(new Option(ct(builtin.nameKey, builtin.zh), builtin.id))
-    }
-  }
-  if (!builtinEngineSetupError('custom', engine)) {
-    select.add(new Option(providerName('custom', engine), 'custom'))
-  }
-  for (const entry of engine.customEngines) {
-    if (entry.id && entry.endpoint && entry.apiKey) {
-      select.add(new Option(entry.name || entry.id, `custom:${entry.id}`))
-    }
-  }
+  for (const { id } of engine.choices) select.add(new Option(providerName(id, engine), id))
   return select
 }
 
@@ -410,7 +398,7 @@ function buildPopup(text: string, rect: DOMRect) {
   popupSize.observe(card)
 }
 
-export function initSelection(config: Config) {
+export function initSelection(config: PageConfig) {
   currentConfig = config
   let timer: ReturnType<typeof setTimeout> | null = null
   const onSelectionInput = (event: Event) => {
