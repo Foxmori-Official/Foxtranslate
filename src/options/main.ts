@@ -5,6 +5,7 @@ import type { SubtitlePatch, SubtitlePreferences } from '../shared/config'
 import { featureCopy } from '../shared/featureCopy'
 import { uiCopy } from '../shared/interface'
 import { appNavigation } from '../shared/appShell'
+import { checkLatestRelease, RELEASES_URL } from '../shared/releases'
 /**
  * Foxtranslate options — 设置页逻辑（原生 TS，无框架，中文 UI，左侧竖排标签页导航）。
  *
@@ -405,12 +406,14 @@ const TABS = [
   { id: 'glossary', label: '术语表' },
   { id: 'glossaryLibs', label: 'AI 术语库' },
   { id: 'privacy', label: '隐私' },
+  { id: 'about', label: '关于与更新' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
 
 /** 导航/页标题文案：随界面语言切换（auto 先解析为浏览器界面语言；zh-CN 时即 TABS 内的中文原文） */
 function tabLabel(id: TabId, zh: string): string {
+  if (id === 'about') return uiCopy('about', config.uiLang)
   return id === 'video' ? uiCopy('video', config.uiLang) : t(`tab.${id}`, resolveUiLang(config.uiLang), zh)
 }
 
@@ -458,6 +461,7 @@ function buildShell(root: HTMLElement): void {
   const nav = el('nav', 'nav')
   let groupItems: HTMLElement = nav
   for (const tab of TABS) {
+    if (tab.id === 'about') continue
     const btn = el('button', 'nav-btn', tabLabel(tab.id, tab.label))
     btn.type = 'button'
     btn.dataset.tab = tab.id
@@ -490,7 +494,15 @@ function buildShell(root: HTMLElement): void {
   privacyLink.href = chrome.runtime.getURL('privacy.html')
   privacyLink.target = '_blank'
   privacyLink.rel = 'noopener noreferrer'
-  sideFooter.append(siteLink, guideLink, privacyLink)
+  const about = el('button', 'side-footer-link about-nav')
+  about.type = 'button'
+  about.dataset.tab = 'about'
+  about.append(
+    el('span', 'about-label', uiCopy('about', config.uiLang)),
+    el('span', 'about-version', 'v' + chrome.runtime.getManifest().version),
+  )
+  about.addEventListener('click', () => switchTab('about', true))
+  sideFooter.append(siteLink, guideLink, privacyLink, about)
   sidebar.append(sideFooter)
 
   const main = el('main', 'main')
@@ -506,7 +518,7 @@ function buildShell(root: HTMLElement): void {
 function switchTab(id: TabId, focusHeading = false): void {
   activeTab = id
   history.replaceState(null, '', '#' + id)
-  document.querySelectorAll<HTMLButtonElement>('.nav-btn').forEach((b) => {
+  document.querySelectorAll<HTMLButtonElement>('button[data-tab]').forEach((b) => {
     b.classList.toggle('active', b.dataset.tab === id)
     if (b.dataset.tab === id) {
       b.setAttribute('aria-current', 'page')
@@ -531,9 +543,11 @@ function renderContent(): void {
     summary.textContent = uiCopy(summary.dataset.group === 'assist' ? 'assist' : 'data', config.uiLang)
   }
   // 导航标签随界面语言刷新（uiLang 切换后重渲染即更新）
-  document.querySelectorAll<HTMLButtonElement>('.nav-btn').forEach((b) => {
+  document.querySelectorAll<HTMLButtonElement>('button[data-tab]').forEach((b) => {
     const navTab = TABS.find((x) => x.id === b.dataset.tab)
-    if (navTab) b.textContent = tabLabel(navTab.id, navTab.label)
+    if (!navTab) return
+    const label = b.querySelector('.about-label') ?? b
+    label.textContent = tabLabel(navTab.id, navTab.label)
   })
   contentEl.replaceChildren()
   const tab = TABS.find((x) => x.id === activeTab)
@@ -543,13 +557,14 @@ function renderContent(): void {
   const description = featureDescription
     ? featureCopy(featureDescription, config.uiLang)
     : ot(`tabDesc.${activeTab}`, TAB_DESCS[activeTab] ?? '')
-  contentEl.append(
-    title,
-    el('p', 'page-desc', description),
-  )
+  contentEl.append(title)
+  if (description) contentEl.append(el('p', 'page-desc', description))
   switch (activeTab) {
     case 'general':
       renderGeneral(contentEl)
+      break
+    case 'about':
+      renderAbout(contentEl)
       break
     case 'engine':
       renderEngine(contentEl)
@@ -588,6 +603,46 @@ function renderContent(): void {
       renderHotkeysTab(contentEl, { config, patchConfig, el: elAny })
       break
   }
+}
+
+function renderAbout(root: HTMLElement): void {
+  const lang = config.uiLang
+  const copy = (key: Parameters<typeof uiCopy>[0]) => uiCopy(key, lang)
+  const installed = chrome.runtime.getManifest().version
+  const section = card('Foxtranslate', fmt(copy('installedVersion'), { version: installed }))
+  section.classList.add('about-card')
+  const check = el('button', 'btn', copy('checkUpdates'))
+  check.type = 'button'
+  const releases = el('a', 'btn btn-secondary', copy('viewReleases'))
+  releases.href = RELEASES_URL
+  releases.target = '_blank'
+  releases.rel = 'noopener noreferrer'
+  const actions = el('div', 'toolbar about-actions')
+  actions.append(check, releases)
+  const status = el('p', 'hint')
+  status.setAttribute('role', 'status')
+  check.addEventListener('click', async () => {
+    check.disabled = true
+    status.textContent = copy('checkingUpdates')
+    releases.href = RELEASES_URL
+    releases.textContent = copy('viewReleases')
+    try {
+      const latest = await checkLatestRelease(installed)
+      if (latest.status === 'available') {
+        status.textContent = fmt(copy('updateAvailable'), { version: latest.version })
+        releases.href = latest.url
+        releases.textContent = fmt(copy('downloadUpdate'), { version: latest.version })
+      } else {
+        status.textContent = copy(latest.status === 'current' ? 'upToDate' : 'aheadOfRelease')
+      }
+    } catch {
+      status.textContent = copy('updateFailed')
+    } finally {
+      check.disabled = false
+    }
+  })
+  section.append(actions, status, el('p', 'hint', copy('updateInstall')))
+  root.append(section)
 }
 
 const providerContext = {

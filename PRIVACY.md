@@ -17,6 +17,7 @@ Foxtranslate 是开源双语翻译扩展。扩展不要求注册账号，不内�
 - AI 阅读、对话与术语提取会发送相应文本和功能使用的上下文。开启页面上下文辅助时，会使用页面摘要等内容。
 - YouTube 字幕从 YouTube 获取。播放器中的狐狸图标打开字幕菜单，会议翻译处理平台已提供的字幕文本。当前实现不录制麦克风或视频音频。
 - 设置页查询模型列表和测试连接时会访问配置端点，并可携带该服务的 API Key。
+- 点击“检查更新”时，扩展向 GitHub 查询公开的正式版本。版本对比在本机完成，请求不携带账号凭证、翻译文本或设置内容。
 - 选择连接 Foxmori 后，扩展通过已登录的主站读取账户和可用分组。点击创建密钥时，扩展将新建或复用该分组内名为 Foxmori 的密钥并保存在浏览器。密码和账户会话由主站处理。
 
 ### 脱敏范围
@@ -50,6 +51,7 @@ Foxtranslate is an open-source bilingual translation extension. The extension re
 - AI reading, chat and term extraction send their input and the context used by that feature. Optional page-context assistance uses page summaries and related context.
 - Captions are retrieved from YouTube. The fox icon opens the player caption menu. Meeting translation processes captions supplied by the meeting platform. The current implementation does not record the microphone or video audio.
 - Model discovery and connection tests in Settings can contact configured endpoints with the associated API Key.
+- Clicking Check for updates queries public release metadata on GitHub. The extension compares versions locally and sends no account credentials, translation text or settings.
 - Connecting Foxmori uses the signed-in website session to read the account and available groups. When you create a key, the extension saves a new or existing key named Foxmori for that group in this browser. Foxmori handles account passwords and session credentials.
 
 ### Optional masking

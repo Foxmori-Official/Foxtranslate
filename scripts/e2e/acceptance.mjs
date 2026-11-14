@@ -227,6 +227,48 @@ try {
   assert.equal(await popup.locator('body').evaluate(el => el.getBoundingClientRect().width), 360)
   assert.equal(await popup.locator('.popup-footer .fox-nav a').count(), 3)
   assert.equal(await popup.locator('.popup-header .fox-nav a').count(), 0)
+  const version = await worker.evaluate(() => chrome.runtime.getManifest().version)
+  assert.equal(await popup.getByText('v' + version, { exact: true }).count(), 0)
+  const about = await browser.newPage()
+  await about.setViewportSize({ width: 390, height: 780 })
+  await about.goto(origin + '/options.html')
+  const aboutEntry = about.locator('.sidebar').getByRole('button', { name: 'About and updates v' + version })
+  await aboutEntry.getByText('v' + version, { exact: true }).waitFor()
+  await aboutEntry.click()
+  await about.waitForURL(origin + '/options.html#about')
+  await about.getByText('Installed version ' + version, { exact: true }).waitFor()
+  await noHorizontalOverflow(about)
+  const current = version.split('.').map(Number)
+  const newer = [current[0], current[1], current[2] + 10].join('.')
+  const releasesUrl = 'https://github.com/Foxmori-Official/Foxtranslate/releases'
+  let tag = 'v' + newer
+  let updateHttpStatus = 200
+  await about.route('https://api.github.com/repos/Foxmori-Official/Foxtranslate/releases/latest', async route => {
+    assert.equal(route.request().method(), 'GET')
+    const headers = await route.request().allHeaders()
+    assert.equal(headers.authorization, undefined)
+    assert.equal(headers.cookie, undefined)
+    await route.fulfill({ status: updateHttpStatus, headers: { 'access-control-allow-origin': '*' }, json: {
+      tag_name: tag, draft: false, prerelease: false, html_url: 'https://untrusted.invalid/file',
+    } })
+  })
+  const checkUpdate = about.getByRole('button', { name: 'Check for updates' })
+  const updateStatus = about.locator('.about-card [role="status"]')
+  await checkUpdate.click()
+  await updateStatus.getByText('Version v' + newer + ' is available.').waitFor()
+  const downloadUpdate = about.getByRole('link', { name: 'View and download v' + newer })
+  assert.equal(await downloadUpdate.getAttribute('href'), releasesUrl + '/tag/v' + newer)
+  tag = 'v' + version + '.0'
+  await checkUpdate.click()
+  await updateStatus.getByText('You have the latest stable release.').waitFor()
+  tag = 'v0.0.1'
+  await checkUpdate.click()
+  await updateStatus.getByText('Your version is newer than the stable release on GitHub.').waitFor()
+  updateHttpStatus = 503
+  await checkUpdate.click()
+  await updateStatus.getByText('Could not check for updates.', { exact: false }).waitFor()
+  assert.equal(await about.getByRole('link', { name: 'GitHub Releases' }).getAttribute('href'), releasesUrl)
+  await about.close()
   for (const label of ['Documents', 'Vocabulary', 'Settings']) {
     assert.equal(await popup.getByText(label, { exact: true }).isVisible(), true)
   }

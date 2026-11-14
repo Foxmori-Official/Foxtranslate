@@ -512,6 +512,7 @@ function installChromeStub(): void {
   );
   (globalThis as Record<string, unknown>).chrome = {
     runtime: {
+      getManifest: () => ({ version: '0.0.6' }),
       sendMessage,
       getURL: (p: string) => `chrome-extension://mock/${p}`,
     },

@@ -15,6 +15,8 @@ Requires Chrome / Edge 140 or newer for extension storage isolation and document
 
 The default free engine is ready to use. Reload open webpages after updating the extension. This README describes the current source. Each download has its own [release notes](https://github.com/Foxmori-Official/Foxtranslate/releases).
 
+The settings sidebar shows your installed version next to About and updates. Open it to check the latest stable version on GitHub. For a manual installation, copy the updated files into the existing folder and reload it in your browser’s extension manager.
+
 ## What you can do
 
 - **Read foreign-language webpages.** Switch between bilingual and translation-only views. Translate a selection, hover over a paragraph with a modifier key, or translate text in an editable field with a shortcut.

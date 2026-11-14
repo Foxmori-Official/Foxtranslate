@@ -744,6 +744,23 @@ input[type='checkbox']:not(.switch) {
 .side-footer-link:hover {
   color: var(--tv-primary-text);
 }
+.about-nav {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 8px;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.about-nav.active { font-weight: 650; color: var(--tv-primary-text); }
+.about-version { font-variant-numeric: tabular-nums; }
+.about-card .btn { text-align: center; }
+.about-card [role='status']:empty { margin: 0; }
+.about-actions { flex-wrap: wrap; }
 
 /* ===== 翻译服务列表与详情 ===== */
 
