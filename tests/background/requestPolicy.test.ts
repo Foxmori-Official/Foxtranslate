@@ -79,13 +79,27 @@ describe('actual request budgets', () => {
     expect(maximum).toBeLessThanOrEqual(3)
   })
 
-  it.each([401, 403, 429, 500])('does not multiply a failed HTTP %s batch into singles', async status => {
+  it.each([401, 403, 429, 500, 524])('does not multiply a failed HTTP %s batch into singles', async status => {
     const c = config()
     c.engine.keys.openai += status
     const fetch = vi.fn(async () => new Response('', { status }))
     setFetchImpl(fetch)
     await expect(translateTexts(['a', 'b', 'c'], { targetLang: 'zh-CN' }, c)).rejects.toThrow(`HTTP ${status}`)
     expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports Foxmori HTTP 524 from the API without replaying the batch', async () => {
+    const c = config()
+    c.engine.provider = 'foxmori'
+    c.engine.keys.foxmori = 'fixture-524-key'
+    c.engine.foxmori.model = 'fixture-model'
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response('', { status: 524 }))
+    setFetchImpl(fetch)
+
+    await expect(translate('Foxmori gateway timeout fixture', { targetLang: 'zh-CN' }, c))
+      .rejects.toMatchObject({ message: expect.stringContaining('foxmori: HTTP 524'), statusCode: 524 })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls[0]?.[0]).toBe('https://api.foxmori.com/v1/chat/completions')
   })
 
   it.each(['document', 'page'])('stops %s format fallbacks when the service rejects a single request', async path => {

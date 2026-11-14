@@ -17,7 +17,7 @@ import { checkLatestRelease, RELEASES_URL } from '../shared/releases'
  */
 import { LANGS, COMMON_LANG_CODES, langNative } from '../core/langs'
 import { getStyle, TRANSLATION_STYLES } from '../core/styles'
-import type { Config, CustomEngine, GlossaryTerm } from '../shared/config'
+import { ENGINE_REQUEST_TIMEOUT_MS, type Config, type CustomEngine, type GlossaryTerm } from '../shared/config'
 import { parseHttpEndpoint } from '../shared/endpoint'
 import { fmt, t, resolveUiLang, normalizeUiLang, UI_LANGS, type UiLangCode } from '../shared/i18n'
 import { genId } from '../shared/ids'
@@ -1033,9 +1033,6 @@ function buildEngineTest(provider: string, isCurrent: boolean): HTMLElement {
   }
   panel.append(
     el('hr', 'engine-divider'),
-    fieldRow(ot('opt.s21', '超时（毫秒）'), buildNumberInput(config.engine.timeoutMs, 1000, (v) => {
-      void patchEngine(engine => ({ ...engine, timeoutMs: v }))
-    })),
     actions,
     testResult,
   )
@@ -1207,7 +1204,7 @@ function buildCustomEngineForm(editId: string | null): HTMLElement {
         const key = keyInput.value.trim()
         if (key) headers.Authorization = `Bearer ${key}`
         url.pathname = url.pathname.replace(/\/+$/, '') + '/models'
-        const resp = await fetch(url.href, { headers, redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(config.engine.timeoutMs) })
+        const resp = await fetch(url.href, { headers, redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(ENGINE_REQUEST_TIMEOUT_MS) })
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
         const data = (await resp.json()) as { data?: Array<{ id?: unknown }> }
         const models = (Array.isArray(data.data) ? data.data : [])
@@ -1356,6 +1353,29 @@ function renderStyle(root: HTMLElement): void {
 // ===== 标签页 4：隐私 =====
 
 function renderPrivacy(root: HTMLElement): void {
+  const copy = (key: Parameters<typeof featureCopy>[0]) => featureCopy(key, config.uiLang)
+  const cacheCard = card(copy('translationCache'), copy('translationCacheHint'))
+  const clearCache = el('button', 'btn btn-secondary', copy('clearTranslationCache'))
+  clearCache.type = 'button'
+  const cacheStatus = el('p', 'hint')
+  cacheStatus.setAttribute('role', 'status')
+  clearCache.addEventListener('click', async () => {
+    clearCache.disabled = true
+    clearCache.textContent = copy('clearingTranslationCache')
+    cacheStatus.textContent = ''
+    try {
+      await sendBg({ kind: 'clearTranslationCache' })
+      cacheStatus.textContent = copy('translationCacheCleared')
+      cacheStatus.setAttribute('role', 'status')
+    } catch (error) {
+      cacheStatus.textContent = errMsg(error)
+      cacheStatus.setAttribute('role', 'alert')
+    } finally {
+      clearCache.disabled = false
+      clearCache.textContent = copy('clearTranslationCache')
+    }
+  })
+  cacheCard.append(clearCache, cacheStatus)
   // 与其他页一致：card(标题+说明) + fieldRow 行式开关（标签左+开关右），仅保留 card-mask 醒目底色
   const maskCard = card(
     ot('opt.s64', '敏感信息脱敏'),
@@ -1377,7 +1397,7 @@ function renderPrivacy(root: HTMLElement): void {
   policy.href = chrome.runtime.getURL('privacy.html')
   policy.target = '_blank'
   policy.rel = 'noopener noreferrer'
-  root.append(maskCard, statsCard, policy)
+  root.append(maskCard, cacheCard, statsCard, policy)
 }
 
 // ===== 标签页 5：术语表 =====

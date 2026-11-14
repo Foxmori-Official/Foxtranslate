@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CONFIG, type Config } from '../../src/shared/config'
+import { DEFAULT_CONFIG, ENGINE_REQUEST_TIMEOUT_MS, type Config } from '../../src/shared/config'
 import { ENGINES } from '../../src/background/engines'
 import { getBatchQueue, resetBatchQueues } from '../../src/background/batch'
 import { detectLang, translate, translateTexts, resetCooldowns } from '../../src/background/translate'
@@ -356,12 +356,24 @@ describe('当前字幕的优先调度', () => {
 
   it('批量失败后的单发重试也有超时', async () => {
     const config = makeConfig({ provider: 'openai', batch: true })
-    config.engine.timeoutMs = 20
     vi.mocked(ENGINES.openai.translateBatch!).mockRejectedValue(new BatchFormatError('batch failed'))
     vi.mocked(ENGINES.openai.translate).mockImplementation((_text, _from, _to, _ctx, signal) => new Promise((_resolve, reject) => {
       signal?.addEventListener('abort', () => reject(new Error('request timed out')), { once: true })
     }))
-    const request = expect(translateTexts(['caption'], { targetLang: 'zh-CN' }, config)).rejects.toThrow('request timed out')
-    await request
+    vi.useFakeTimers()
+    try {
+      expect(ENGINE_REQUEST_TIMEOUT_MS).toBe(600_000)
+      const request = expect(translateTexts(['caption'], { targetLang: 'zh-CN' }, config))
+        .rejects.toThrow('request timed out')
+      await vi.waitFor(() => expect(ENGINES.openai.translate).toHaveBeenCalled())
+      const signal = vi.mocked(ENGINES.openai.translate).mock.calls[0][4]!
+      await vi.advanceTimersByTimeAsync(ENGINE_REQUEST_TIMEOUT_MS - 1000)
+      expect(signal.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1000)
+      await request
+      expect(signal.aborted).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

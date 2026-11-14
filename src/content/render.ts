@@ -100,6 +100,7 @@ export function showLoading(el: Element): HTMLElement {
 export interface ErrorOptions {
   message: string
   onRetry?: () => void
+  retryLabel?: string
 }
 
 export function showError(el: Element, opts: ErrorOptions): HTMLElement {
@@ -111,7 +112,7 @@ export function showError(el: Element, opts: ErrorOptions): HTMLElement {
   box.textContent = '⚠ ' + ct('sel.translateFailed', '翻译失败：') + opts.message
   const retry = document.createElement('button')
   retry.className = 'tv-error-retry'
-  retry.textContent = ct('render.retry', '重试')
+  retry.textContent = opts.retryLabel ?? ct('render.retry', '重试')
   retry.addEventListener('click', (e) => {
     if (!e.isTrusted) return
     e.stopPropagation()

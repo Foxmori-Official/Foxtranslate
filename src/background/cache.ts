@@ -19,6 +19,7 @@ const lru = new Map<string, string>()
 let loadPromise: Promise<void> | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let dirty = false
+let writes: Promise<void> = Promise.resolve()
 
 function storageAvailable(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.storage?.local
@@ -28,9 +29,11 @@ async function ensureLoaded(): Promise<void> {
   if (!storageAvailable()) return
   if (loadPromise) return loadPromise
   loadPromise = (async () => {
-    const stored = await new Promise<unknown>((resolve) => {
+    const stored = await new Promise<unknown>((resolve, reject) => {
       chrome.storage.local.get(CACHE_STORAGE_KEY, (result) => {
-        resolve((result as Record<string, unknown> | undefined)?.[CACHE_STORAGE_KEY])
+        const error = chrome.runtime?.lastError
+        if (error) reject(new Error(error.message))
+        else resolve((result as Record<string, unknown> | undefined)?.[CACHE_STORAGE_KEY])
       })
     })
     if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
@@ -39,7 +42,7 @@ async function ensureLoaded(): Promise<void> {
       const keep = entries.length > MAX_ENTRIES ? entries.slice(entries.length - MAX_ENTRIES) : entries
       for (const [k, v] of keep) lru.set(k, String(v))
     }
-  })()
+  })().catch(error => { loadPromise = null; throw error })
   return loadPromise
 }
 
@@ -47,9 +50,17 @@ async function writeThrough(): Promise<void> {
   if (!storageAvailable()) return
   dirty = false
   const snapshot = Object.fromEntries(lru)
-  await new Promise<void>((resolve) => {
-    chrome.storage.local.set({ [CACHE_STORAGE_KEY]: snapshot }, () => resolve())
+  const write = () => new Promise<void>((resolve, reject) => {
+    chrome.storage.local.set({ [CACHE_STORAGE_KEY]: snapshot }, () => {
+      const error = chrome.runtime?.lastError
+      if (error) reject(new Error(error.message))
+      else resolve()
+    })
   })
+  const operation = writes.then(write, write)
+  writes = operation.catch(() => {})
+  try { await operation }
+  catch (error) { dirty = true; throw error }
 }
 
 /** 节流落盘：2s 窗口内的多次写入合并为一次 storage 写。 */
@@ -57,7 +68,7 @@ function scheduleFlush(): void {
   if (flushTimer || !storageAvailable()) return
   flushTimer = setTimeout(() => {
     flushTimer = null
-    if (dirty) void writeThrough()
+    if (dirty) void writeThrough().catch(() => {})
   }, FLUSH_INTERVAL_MS)
 }
 

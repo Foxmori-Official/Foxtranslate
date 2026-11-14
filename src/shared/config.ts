@@ -3,6 +3,9 @@ import { BUILTIN_EXPERTS, type ExpertPreset } from '../core/experts'
 import { normalizeUiLang, type UiLangCode } from './i18n'
 import { TRANSLATION_CONCURRENCY, BATCH_MAX_TEXTS, normalizeConcurrency, normalizeBatchMaxTexts } from './translationLimits'
 
+/** Fixed timeout for translation and provider API requests. */
+export const ENGINE_REQUEST_TIMEOUT_MS = 600_000
+
 export type { ExpertPreset }
 export interface GlossaryTerm { src: string; dst: string }
 
@@ -86,7 +89,6 @@ export interface Config {
     foxmori: { model: string }
     customEngines: CustomEngine[]
     custom: { url: string; bodyJson: string }
-    timeoutMs: number
   }
   batch: {
     enabled: boolean
@@ -143,7 +145,6 @@ export const DEFAULT_CONFIG: Config = {
     foxmori: { model: '' },
     customEngines: [],
     custom: { url: '', bodyJson: '{"text":"{{text}}","from":"{{from}}","to":"{{to}}"}' },
-    timeoutMs: 20000,
   },
   batch: { enabled: true, maxTexts: BATCH_MAX_TEXTS.default, maxChars: 1200, intervalMs: 120, concurrency: TRANSLATION_CONCURRENCY.default },
   style: { styleId: 'soft-gray' },

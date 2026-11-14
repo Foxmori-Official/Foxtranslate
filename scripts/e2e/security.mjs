@@ -10,9 +10,13 @@ const fixture = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   const longPage = req.url === '/long'
     ? '<div style="height:4000px" aria-hidden="true"></div><p id="offscreen">Offscreen audit text is only translated after scrolling.</p>' : ''
+  const retryPage = req.url === '/retry' ? [1, 2, 3].map(i =>
+    '<p id="retry-' + i + '">Retry audit paragraph number ' + i + ' contains useful public information.</p>').join('') : ''
   res.end(`<!doctype html><html lang="en"><title>Security fixture</title><main>
     <p id="paragraph">This paragraph contains useful information about language learning.</p>
-    <p>Language learning language learning language learning.</p><textarea id="input"></textarea>${longPage}</main>
+    <p>Language learning language learning language learning.</p><textarea id="input"></textarea>
+    ${req.url === '/interactions' ? '<div id="hover-div"><span>This div contains a line for modifier hover testing.</span></div>' : ''}
+    ${longPage}${retryPage}</main>
     <script>
       window.attackActivation = null;
       if (location.pathname === '/attack') setTimeout(() => {
@@ -44,16 +48,31 @@ try {
   await cp(resolve(process.env.FOXTRANSLATE_EXTENSION_DIR || 'dist'), extension, { recursive: true })
   const manifestPath = join(extension, 'manifest.json')
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-  manifest.content_scripts.push({ matches: ['http://127.0.0.1/*'], js: ['security-probe.js'], run_at: 'document_idle' })
+  manifest.content_scripts.push({ matches: ['http://127.0.0.1/*', 'https://foxmori.com/*'], js: ['security-probe.js'], run_at: 'document_idle' })
   await writeFile(manifestPath, JSON.stringify(manifest))
+  const backgroundPath = join(extension, 'background.js')
+  const background = await readFile(backgroundPath, 'utf8')
+  await writeFile(backgroundPath, `
+    const nativeCreateMenu = chrome.contextMenus.create.bind(chrome.contextMenus);
+    globalThis.fixtureMenus = new Map();
+    chrome.contextMenus.create = (properties, callback) => {
+      globalThis.fixtureMenus.set(properties.id, properties);
+      return nativeCreateMenu(properties, callback);
+    };
+    const nativeAddMenuListener = chrome.contextMenus.onClicked.addListener.bind(chrome.contextMenus.onClicked);
+    chrome.contextMenus.onClicked.addListener = listener => {
+      globalThis.fixtureMenuClick = listener;
+      nativeAddMenuListener(listener);
+    };
+  ` + background)
   await writeFile(join(extension, 'security-probe.js'), `
     if (location.pathname === '/permissions') document.addEventListener('fixture:probe', async () => {
       const report = {};
-      for (const kind of ['getConfig','getPageConfig','getWords','getHighlights','foxmoriAccount','setConfig','setSubtitlePreferences']) {
-        const result = await chrome.runtime.sendMessage({kind,patch:{uiLang:'en',youtube:false}});
+      for (const kind of ['getConfig','getPageConfig','getWords','getHighlights','foxmoriLogin','foxmoriAccount','savedFoxmoriAccount','foxmoriCreateKey','clearTranslationCache','setConfig','setSubtitlePreferences']) {
+        const result = await chrome.runtime.sendMessage({kind,accountId:12,groupId:7,patch:{uiLang:'en',youtube:false}});
         report[kind] = {ok: result.ok, data: kind === 'getPageConfig' || kind === 'getHighlights' ? result.data : undefined};
       }
-      try { report.storageAccessible = !!(await chrome.storage.local.get('tv:config_v1'))['tv:config_v1']; }
+      try { report.storageAccessible = Object.keys(await chrome.storage.local.get(['tv:config_v1','tv:foxmori_account_v1'])).length > 0; }
       catch { report.storageAccessible = false; }
       try { await chrome.storage.local.set({ 'tv:fixture-probe': true }); report.storageWritable = true; }
       catch { report.storageWritable = false; }
@@ -75,6 +94,7 @@ try {
         globalThis.securityCalls++
         const text = JSON.parse(init.body).messages.at(-1).content
         globalThis.securityTexts.push(text)
+        if (globalThis.failRetryAudit && /Retry audit paragraph number [12]/.test(text)) return new Response('', { status: 524 })
         if (text.includes('Delayed audit paragraph') && globalThis.delayTranslation) {
           globalThis.markDelayedStarted()
           await globalThis.delayTranslation
@@ -99,21 +119,37 @@ try {
   config.batch.enabled = false
   config.uiLang = 'zh-CN'
   await send({ kind: 'setConfig', patch: config })
+  await worker.evaluate(() => chrome.storage.local.set({
+    'tv:foxmori_account_v1': {
+      authenticated: true, user: { id: 12, email: 'private-fixture@example.test', username: 'Fixture' }, groups: [],
+    },
+  }))
+  let consoleCalls = 0
+  await browser.route('https://foxmori.com/**', route => {
+    if (new URL(route.request().url()).pathname === '/permissions') {
+      return route.fulfill({ contentType: 'text/html', body: '<title>Foxmori security fixture</title><p>Fixture</p>' })
+    }
+    consoleCalls++
+    return route.abort()
+  })
   const page = await browser.newPage()
-  await page.goto(address + '/permissions')
-  await page.locator('.tv-ball').waitFor()
-  await page.evaluate(() => document.dispatchEvent(new Event('fixture:probe')))
-  await page.waitForFunction(() => document.body.dataset.fixtureReport)
-  const access = await page.evaluate(() => JSON.parse(document.body.dataset.fixtureReport))
-  for (const kind of ['getConfig','getWords','foxmoriAccount','setConfig','setSubtitlePreferences']) assert.equal(access[kind].ok, false, kind)
-  assert.equal(access.storageAccessible, false)
-  assert.equal(access.storageWritable, false)
-  assert.equal(access.getPageConfig.ok, true)
-  assert.equal(access.getPageConfig.data.uiLang, 'zh-CN')
-  assert.equal(access.getPageConfig.data.engine.provider, 'foxmori')
-  assert.ok(access.getPageConfig.data.engine.choices.some(choice => choice.id === 'foxmori'))
-  assert.ok(!JSON.stringify(access.getPageConfig.data).includes('security-fixture-key'))
-  assert.deepEqual(access.getHighlights.data, [])
+  for (const url of [address + '/permissions', 'https://foxmori.com/permissions']) {
+    await page.goto(url)
+    await page.locator('.tv-ball').waitFor()
+    await page.evaluate(() => document.dispatchEvent(new Event('fixture:probe')))
+    await page.waitForFunction(() => document.body.dataset.fixtureReport)
+    const access = await page.evaluate(() => JSON.parse(document.body.dataset.fixtureReport))
+    for (const kind of ['getConfig','getWords','foxmoriLogin','foxmoriAccount','savedFoxmoriAccount','foxmoriCreateKey','clearTranslationCache','setConfig','setSubtitlePreferences']) assert.equal(access[kind].ok, false, kind)
+    assert.equal(access.storageAccessible, false)
+    assert.equal(access.storageWritable, false)
+    assert.equal(access.getPageConfig.ok, true)
+    assert.equal(access.getPageConfig.data.uiLang, 'zh-CN')
+    assert.equal(access.getPageConfig.data.engine.provider, 'foxmori')
+    assert.ok(access.getPageConfig.data.engine.choices.some(choice => choice.id === 'foxmori'))
+    assert.doesNotMatch(JSON.stringify(access.getPageConfig.data), /security-fixture-key|private-fixture@example\.test/)
+    assert.deepEqual(access.getHighlights.data, [])
+  }
+  assert.equal(consoleCalls, 0)
   await page.goto(address + '/attack')
   // Do not evaluate scripts in this page before its autonomous attack: DevTools evaluation
   // can itself grant temporary user activation and would weaken this regression test.
@@ -122,6 +158,72 @@ try {
   assert.equal(await worker.evaluate(() => globalThis.securityCalls), 0)
   assert.equal(await page.locator('.tv-sel-popup').count(), 0)
   assert.equal(await page.locator('tv-translation').count(), 0)
+
+  const interactions = await browser.newPage()
+  await interactions.goto(address + '/interactions')
+  await interactions.locator('.tv-ball').waitFor()
+  await interactions.locator('#paragraph').hover()
+  await interactions.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Alt', altKey: true, bubbles: true })))
+  assert.equal(await worker.evaluate(() => globalThis.securityCalls), 0)
+  // A real modifier press must work after the cursor has stopped moving.
+  await interactions.keyboard.press('Alt')
+  await interactions.locator('#paragraph tv-translation').filter({ hasText: 'Security fixture translation' }).waitFor()
+  // A real move while holding the modifier must also work on a non-semantic block.
+  await interactions.keyboard.down('Alt')
+  const hoverText = await interactions.locator('#hover-div span').boundingBox()
+  await interactions.mouse.move(hoverText.x + hoverText.width / 2, hoverText.y + hoverText.height / 2)
+  await interactions.locator('#hover-div tv-translation').filter({ hasText: 'Security fixture translation' }).waitFor()
+  await interactions.keyboard.up('Alt')
+
+  const menuId = 'tv-translate-selection'
+  const menu = await worker.evaluate(id => globalThis.fixtureMenus.get(id), menuId)
+  assert.deepEqual(menu?.contexts, ['selection'])
+  assert.ok(menu?.title.includes('Foxtranslate'))
+  await send({ kind: 'setConfig', patch: { selection: { ...config.selection, enabled: false } } })
+  await interactions.reload()
+  await interactions.locator('.tv-ball').waitFor()
+  await interactions.evaluate(() => {
+    document.querySelector('#paragraph').style.marginTop = '220px'
+    document.body.style.minHeight = '1800px'
+  })
+  await selectParagraph(interactions)
+  const text = await interactions.evaluate(() => getSelection().toString().trim())
+  assert.match(text, /language learning/)
+  await new Promise(resolve => setTimeout(resolve, 300))
+  assert.equal(await interactions.locator('.tv-sel-popup').count(), 0)
+  await interactions.bringToFront()
+  const tab = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0])
+  assert.ok(tab?.id != null)
+  const menuMessage = { kind: 'translateSelectedText', text, pageUrl: interactions.url() }
+  await control.evaluate(({ id, message }) => chrome.tabs.sendMessage(id, message), { id: tab.id, message: menuMessage })
+  assert.equal(await interactions.locator('.tv-sel-popup').count(), 0)
+  const selectedRect = await interactions.evaluate(() => {
+    const { left, top, bottom, height } = getSelection().getRangeAt(0).getBoundingClientRect()
+    // A page can clear the live range while handling the browser's contextmenu event.
+    document.addEventListener('contextmenu', event => {
+      event.preventDefault()
+      getSelection().removeAllRanges()
+    }, { once: true })
+    return { left, top, bottom, height }
+  })
+  await interactions.mouse.click(selectedRect.left + 10, selectedRect.top + selectedRect.height / 2, { button: 'right' })
+  assert.equal(await interactions.evaluate(() => getSelection().rangeCount), 0)
+  await interactions.evaluate(() => scrollBy(0, 100))
+  await worker.evaluate(({ menuId, tab, message }) => {
+    globalThis.fixtureMenuClick({ menuItemId: menuId, selectionText: message.text, pageUrl: message.pageUrl }, tab)
+  }, { menuId, tab, message: menuMessage })
+  await interactions.locator('.tv-sel-translation').getByText('Security fixture translation', { exact: true }).waitFor()
+  await interactions.locator('.tv-sel-popup').evaluate(async popup => {
+    await Promise.all(popup.getAnimations().map(animation => animation.finished))
+  })
+  const menuPopup = await interactions.locator('.tv-sel-popup').boundingBox()
+  assert.ok(Math.abs(menuPopup.x - Math.max(8, selectedRect.left)) <= 2)
+  const scrollY = await interactions.evaluate(() => window.scrollY)
+  assert.ok(Math.abs(menuPopup.y - (selectedRect.bottom - scrollY + 8)) <= 2, JSON.stringify({ menuPopup, selectedRect, scrollY }))
+  await interactions.close()
+  await send({ kind: 'setConfig', patch: { selection: config.selection } })
+  await page.goto(address + '/selection')
+  await page.locator('.tv-ball').waitFor()
 
   await selectParagraph(page)
   const popup = page.locator('.tv-sel-popup')
@@ -221,7 +323,45 @@ try {
   await page.locator('#delayed [data-tv-loading]').waitFor({ state: 'detached' })
   await page.waitForTimeout(150)
   assert.equal(await page.locator('#delayed tv-translation').count(), 0)
-  console.log('PASS · synthetic actions blocked, management and storage isolated, trusted input and hot config updates work, highlights stable, offscreen and dynamic translation stay viewport-bound')
+  await worker.evaluate(() => { globalThis.failRetryAudit = true })
+  const retryPage = await browser.newPage()
+  await retryPage.goto(address + '/retry')
+  await retryPage.locator('.tv-ball').click()
+  await retryPage.locator('#retry-1 [data-tv-error]').waitFor()
+  await retryPage.locator('#retry-2 [data-tv-error]').waitFor()
+  await retryPage.locator('#retry-3 tv-translation').waitFor()
+  const beforeRetry = await worker.evaluate(() => globalThis.securityTexts.length)
+  await retryPage.locator('#retry-1 .tv-error-retry').evaluate(button => button.click())
+  assert.equal(await worker.evaluate(() => globalThis.securityTexts.length), beforeRetry)
+  // A failed paragraph moved outside the viewport must still join the retry wave.
+  await retryPage.locator('#retry-2').evaluate(el => { el.style.marginTop = '4000px' })
+  await worker.evaluate(() => { globalThis.failRetryAudit = false })
+  await retryPage.locator('#retry-1 .tv-error-retry').click()
+  await retryPage.locator('#retry-1 tv-translation').waitFor()
+  await retryPage.locator('#retry-2 tv-translation').waitFor()
+  const retried = await worker.evaluate(start => globalThis.securityTexts.slice(start), beforeRetry)
+  assert.equal(retried.filter(text => text.includes('Retry audit paragraph number 1')).length, 1)
+  assert.equal(retried.filter(text => text.includes('Retry audit paragraph number 2')).length, 1)
+  assert.equal(retried.filter(text => text.includes('Retry audit paragraph number 3')).length, 0)
+
+  const cachedText = 'Cache audit public text for checking the clear button.'
+  await send({ kind: 'translate', text: cachedText, targetLang: 'zh-CN' })
+  let cacheCalls = await worker.evaluate(() => globalThis.securityCalls)
+  await send({ kind: 'translate', text: cachedText, targetLang: 'zh-CN' })
+  assert.equal(await worker.evaluate(() => globalThis.securityCalls), cacheCalls)
+  const retained = await worker.evaluate(() => chrome.storage.local.get(['tv:config_v1', 'tv:words_v1']))
+  const privacy = await browser.newPage()
+  await privacy.goto(origin + '/options.html?uiLang=zh-CN#privacy')
+  await privacy.getByRole('button', { name: '清除翻译缓存', exact: true }).click()
+  await privacy.getByText('翻译缓存已清除', { exact: true }).waitFor()
+  assert.deepEqual(await worker.evaluate(async () => (await chrome.storage.local.get('tv:cache_v1'))['tv:cache_v1']), {})
+  assert.deepEqual(await worker.evaluate(() => chrome.storage.local.get(['tv:config_v1', 'tv:words_v1'])), retained)
+  cacheCalls = await worker.evaluate(() => globalThis.securityCalls)
+  await send({ kind: 'translate', text: cachedText, targetLang: 'zh-CN' })
+  assert.equal(await worker.evaluate(() => globalThis.securityCalls), cacheCalls + 1)
+  await privacy.goto(origin + '/options.html?uiLang=en#privacy')
+  await privacy.getByRole('button', { name: 'Clear translation cache', exact: true }).waitFor()
+  console.log('PASS · cache clearing, page-wide failed retries, trusted controls, management/storage isolation and viewport translation')
 } finally {
   if (browser) await browser.close()
   fixture.close()

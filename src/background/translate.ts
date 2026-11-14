@@ -1,5 +1,5 @@
 /**
- * background/translate.ts — translate() 唯一入口管线（契约 ARCHITECTURE.md §7）。
+ * background/translate.ts — translate() 唯一入口管线，见 docs/architecture.md 的「翻译管线」。
  *
  *   cache.get → mask → glossary → 引擎路由（免费链冷却降级 / BYOK 单发 /
  *   supportsBatch + batch.enabled 走 BatchQueue）→ restore placeholders
@@ -9,7 +9,7 @@
  * FREE_CHAIN 其余引擎，全失败抛合并错误；BYOK 不进链（配置错误不静默掩盖）。
  */
 
-import type { Config } from '../shared/config'
+import { ENGINE_REQUEST_TIMEOUT_MS, type Config } from '../shared/config'
 import { normalizeConcurrency } from '../shared/translationLimits'
 import type { AiChatMessage } from '../shared/protocol'
 import { assertHostPermission, parseHttpEndpoint } from '../shared/endpoint'
@@ -190,7 +190,7 @@ function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number): Pr
 
 function request<T>(config: Config, fn: (signal: AbortSignal) => Promise<T>, priority = false): Promise<T> {
   // Timeout begins after a slot is acquired, rather than expiring while waiting behind other requests.
-  return scheduleRequest(config, () => withTimeout(fn, config.engine.timeoutMs), priority)
+  return scheduleRequest(config, () => withTimeout(fn, ENGINE_REQUEST_TIMEOUT_MS), priority)
 }
 
 /** 免费链：配置引擎优先，失败冷却 60s 沉底，依次尝试 FREE_CHAIN 其余。 */
@@ -304,7 +304,7 @@ async function routePrepared(
       },
       {
         fallbackSingles: (t, immediate) => request(config, signal => engine.translate(t, from, to, ctx, signal), immediate).then(r => r.text),
-        configuration: `${await translationIdentity(config)}|${config.engine.timeoutMs}|${JSON.stringify(config.batch)}`,
+        configuration: `${await translationIdentity(config)}|${JSON.stringify(config.batch)}`,
       },
     )
     const text = await queue.addTask(prepared, options.immediate)

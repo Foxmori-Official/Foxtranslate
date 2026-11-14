@@ -184,6 +184,19 @@ function structuralCandidate(el: Element): boolean {
     Array.from(el.childNodes).some(node => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length >= 12))
 }
 
+/** Find the local text unit, including sites that put paragraphs in divs or spans. */
+export function findHoverUnit(target: Element): HTMLElement | null {
+  if (target.closest(DISCOVERY_SKIP + ', input, [contenteditable]:not([contenteditable="false"])')) return null
+  let fallback: HTMLElement | null = null
+  for (let el: Element | null = target; el && el !== document.body; el = el.parentElement) {
+    if (!(el instanceof HTMLElement)) continue
+    if (el.matches(SEMANTIC_SELECTOR)) return el
+    if (!fallback && structuralCandidate(el)) fallback = el
+    if (BLOCK_CHILD_TAGS.has(el.tagName)) return fallback
+  }
+  return fallback
+}
+
 /** Cheap discovery is consumed in idle slices; text and style checks wait for intersection. */
 export function* discoverCandidates(root: ParentNode): Generator<Element | null> {
   if (root instanceof Element && root.closest(DISCOVERY_SKIP)) return

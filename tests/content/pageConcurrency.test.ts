@@ -73,6 +73,38 @@ it('uses single request admission when AI batching is disabled', async () => {
   expect(requests).toBe(5)
 })
 
+it('retries every failed unit once, including offscreen units, within the current limit', async () => {
+  config.batch.concurrency = 2
+  let fail = true
+  let active = 0, maximum = 0
+  const calls: string[] = []
+  vi.stubGlobal('chrome', { runtime: { sendMessage: vi.fn(async (msg: { kind: string; text: string }) => {
+    if (msg.kind !== 'translate') return { ok: true, data: null }
+    calls.push(msg.text)
+    if (fail) return msg.text.includes('example 0.')
+      ? { ok: true, data: { text: '成功译文' } } : { ok: false, error: 'fixture failure' }
+    maximum = Math.max(maximum, ++active)
+    await new Promise(resolve => setTimeout(resolve, 2))
+    active--
+    return { ok: true, data: { text: '重试成功' } }
+  }) } })
+  await start()
+  await vi.waitFor(() => expect(translator.failedCount).toBe(39))
+  expect(document.querySelectorAll('[data-tv-error]')).toHaveLength(39)
+  document.querySelector<HTMLButtonElement>('.tv-error-retry')!.click()
+  expect(calls).toHaveLength(40)
+  // No new intersection event is fired for the retry wave.
+  document.querySelectorAll('p')[1].remove()
+  fail = false
+  translator.retryFailed()
+  translator.retryFailed()
+  await vi.waitFor(() => expect(translator.translatedCount).toBe(39))
+  expect(calls).toHaveLength(78)
+  expect(maximum).toBeLessThanOrEqual(2)
+  expect(document.querySelectorAll('[data-tv-error]')).toHaveLength(0)
+  expect(translator.failedCount).toBe(0)
+})
+
 it('applies changed limits without cancelling active work or admitting extra work after a decrease', async () => {
   config.batch.concurrency = 2
   await start()

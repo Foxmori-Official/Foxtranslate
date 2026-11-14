@@ -1,8 +1,9 @@
 // background 入口：消息总线、快捷键命令、右键菜单、生词本 FSRS 评分。
 import { FSRS } from 'ts-fsrs'
-import { getFoxmoriAccount, createFoxmoriKey, openFoxmoriLogin } from './foxmoriAccount'
+import { getFoxmoriAccount, createFoxmoriKey, openFoxmoriLogin, getSavedFoxmoriAccount } from './foxmoriAccount'
 import { assertMessageAccess, isExtensionPage } from './messagePolicy'
 import { fetchProviderModels } from './models'
+import { clearAll as clearTranslationCache } from './cache'
 import { mergeSubtitlePreferences, normalizeConfig } from '../shared/config'
 import { toPageConfig } from '../shared/pageConfig'
 import { translate, translateTexts, detectLang, aiAssist, aiChat } from './translate'
@@ -46,7 +47,9 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender, sig
       await openFoxmoriLogin()
       return null
     case 'foxmoriAccount':
-      return getFoxmoriAccount()
+      return getFoxmoriAccount(msg.interactive !== false)
+    case 'savedFoxmoriAccount':
+      return getSavedFoxmoriAccount()
     case 'foxmoriCreateKey':
       return createFoxmoriKey(msg.groupId, msg.accountId)
     case 'fetchModels':
@@ -84,6 +87,9 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender, sig
       return { terms: await extractTermsWithAI(msg.text, msg.targetLang, config) }
     case 'getConfig':
       return config
+    case 'clearTranslationCache':
+      await clearTranslationCache()
+      return null
     case 'getPageConfig':
       return toPageConfig(config)
     case 'setConfig': {
@@ -235,6 +241,12 @@ chrome.commands.onCommand.addListener((command) => {
 
 chrome.runtime.onInstalled.addListener((details) => {
   chrome.contextMenus.create({
+    id: 'tv-translate-selection',
+    title: chrome.i18n.getMessage('menuTranslateSelection') || '翻译所选文字',
+    contexts: ['selection'],
+    documentUrlPatterns: ['http://*/*', 'https://*/*'],
+  })
+  chrome.contextMenus.create({
     id: 'tv-toggle-page',
     title: chrome.i18n.getMessage('menuTogglePage') || '切换整页翻译 (Foxtranslate)',
     contexts: ['page'],
@@ -251,7 +263,11 @@ chrome.runtime.onInstalled.addListener((details) => {
 })
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'tv-toggle-page' && tab?.id != null) {
+  if (info.menuItemId === 'tv-translate-selection' && tab?.id != null && info.selectionText && info.pageUrl) {
+    const message: ContentRequest = { kind: 'translateSelectedText', text: info.selectionText, pageUrl: info.pageUrl }
+    // The top-level script can display the result even when the selection is in an iframe.
+    void chrome.tabs.sendMessage(tab.id, message, { frameId: 0 }).catch(() => {})
+  } else if (info.menuItemId === 'tv-toggle-page' && tab?.id != null) {
     void chrome.tabs.sendMessage(tab.id, { kind: 'togglePage' })
   } else if (info.menuItemId === 'tv-open-options') {
     void chrome.runtime.openOptionsPage()

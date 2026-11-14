@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type Config } from '../shared/config'
+import { DEFAULT_CONFIG, ENGINE_REQUEST_TIMEOUT_MS, type Config } from '../shared/config'
 import { FOXMORI_API } from '../shared/foxmori'
 import { assertHostPermission, parseHttpEndpoint } from '../shared/endpoint'
 
@@ -20,7 +20,7 @@ export async function fetchProviderModels(config: Config, provider: string, fetc
     redirect: 'error',
     credentials: 'omit',
     cache: 'no-store',
-    signal: AbortSignal.timeout(config.engine.timeoutMs),
+    signal: AbortSignal.timeout(ENGINE_REQUEST_TIMEOUT_MS),
   })
   if (response.status === 401) throw new Error('API Key 无效或已过期，请重新配置。')
   if (response.status === 403) throw new Error('此密钥没有模型访问权限，请检查服务配置或套餐分组。')

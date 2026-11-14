@@ -8,9 +8,12 @@ export interface FoxmoriAccount {
   groups: FoxmoriGroup[]
 }
 export type FoxmoriBridgeRequest =
-  | { kind: 'foxmoriBridge'; action: 'account' }
+  | { kind: 'foxmoriBridge'; action: 'ready' | 'account' }
   | { kind: 'foxmoriBridge'; action: 'createKey'; groupId: number; accountId: number }
 
 export function isFoxmoriSite(value: string): boolean {
-  try { return new URL(value).origin === FOXMORI_SITE } catch { return false }
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && url.origin === FOXMORI_SITE
+  } catch { return false }
 }

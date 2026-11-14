@@ -12,7 +12,7 @@
  * 网络访问统一走 engines/fetch 的 getFetch()，测试用 setFetchImpl 注入替身。
  */
 
-import type { Config, GlossaryTerm, CustomGlossaryLibrary } from '../shared/config'
+import { ENGINE_REQUEST_TIMEOUT_MS, type Config, type GlossaryTerm, type CustomGlossaryLibrary } from '../shared/config'
 import { langName } from '../core/langs'
 import { maskSensitive } from '../core/mask'
 import { getFetch, httpError } from './engines/fetch'
@@ -311,7 +311,7 @@ export async function extractTermsWithAI(
       method: 'POST',
       redirect: 'error',
       credentials: 'omit',
-      signal: AbortSignal.timeout(config.engine.timeoutMs),
+      signal: AbortSignal.timeout(ENGINE_REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${config.engine.keys.openai}`,
         'Content-Type': 'application/json',

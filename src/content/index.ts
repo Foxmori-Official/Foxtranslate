@@ -2,7 +2,7 @@ import { matchHotkey } from '../shared/hotkeys'
 export { matchHotkey } from '../shared/hotkeys'
 // 内容脚本入口：配置装载与热同步、快捷键、消息监听、各子系统装配。
 import { PageTranslator } from './page'
-import { initSelection, setSelectionConfig } from './selection'
+import { initSelection, setSelectionConfig, translateContextSelection } from './selection'
 import { initHover, setHoverConfig } from './hover'
 import { initInput, setInputConfig } from './input'
 import { toggleFloatingBall, updateBallState } from './floatingBall'
@@ -134,6 +134,10 @@ chrome.runtime.onMessage.addListener((msg: ContentRequest, sender, sendResponse)
       sendResponse({ active })
     })
     return true
+  }
+  if (msg.kind === 'translateSelectedText' && isBackgroundSender(sender) && msg.pageUrl === location.href) {
+    translateContextSelection(msg.text)
+    return false
   }
   if (msg.kind === 'pageState') {
     const counts = pageTranslator.counts()

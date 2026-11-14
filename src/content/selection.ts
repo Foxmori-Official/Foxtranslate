@@ -13,6 +13,7 @@ let popup: HTMLElement | null = null
 let popupSize: ResizeObserver | null = null
 let hideTimer: ReturnType<typeof setTimeout> | null = null
 let currentConfig: PageConfig | null = null
+let menuAnchor: { rect: DOMRect; scrollX: number; scrollY: number; url: string } | null = null
 
 // 朗读播放器单例：跨气泡共享，重复朗读自动中断旧播放
 const ttsPlayer = new TtsPlayer()
@@ -57,6 +58,21 @@ function removePopup() {
   popup = null
 }
 
+function normalizeSelectionText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function selectionRect(): DOMRect | null {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount || selection.isCollapsed) return null
+  const rect = selection.getRangeAt(0).getBoundingClientRect()
+  return rect.width || rect.height ? rect : null
+}
+
+function rememberMenuAnchor(rect: DOMRect): void {
+  menuAnchor = { rect, scrollX: window.scrollX, scrollY: window.scrollY, url: location.href }
+}
+
 function getSelectionText(): string {
   const sel = window.getSelection()
   if (!sel || sel.isCollapsed) return ''
@@ -69,7 +85,7 @@ function getSelectionText(): string {
     frag.querySelectorAll?.('tv-translation, [data-tv-owned]').forEach((n) => n.remove())
     text += frag.textContent ?? ''
   }
-  return text.replace(/\s+/g, ' ').trim()
+  return normalizeSelectionText(text)
 }
 
 function contextAroundSelection(text: string): string {
@@ -153,10 +169,9 @@ function positionPopup(card: HTMLElement, rect: DOMRect): void {
   card.style.left = `${window.scrollX + Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))}px`
 }
 
-function buildPopup(text: string, rect: DOMRect) {
+function buildPopup(text: string, rect: DOMRect, pageContext = contextAroundSelection(text)) {
   removePopup()
   const config = currentConfig!
-  const pageContext = contextAroundSelection(text)
   const card = document.createElement('div')
   popup = card
   card.className = 'tv-sel-popup'
@@ -398,6 +413,34 @@ function buildPopup(text: string, rect: DOMRect) {
   popupSize.observe(card)
 }
 
+/** A browser menu click is independent of the automatic selection setting. */
+export function translateContextSelection(selectedText: string): void {
+  const anchor = menuAnchor
+  menuAnchor = null
+  if (!currentConfig || typeof selectedText !== 'string') return
+  const text = normalizeSelectionText(selectedText)
+  if (!text) return
+  const limit = currentConfig.selection.maxChars
+  if (text.length > limit) {
+    toast(fmt(ct('sel.tooLong', '所选文字超过 {limit} 字，缩短后再翻译。'), { limit }))
+    return
+  }
+  const selection = window.getSelection()
+  const rect = selection?.rangeCount && !selection.isCollapsed &&
+    (normalizeSelectionText(selection.toString()) === text || getSelectionText() === text)
+    ? selection.getRangeAt(0).getBoundingClientRect()
+    : null
+  if (rect && (rect.width || rect.height)) {
+    buildPopup(text, rect)
+    return
+  }
+  // The browser menu or a page's event handler can clear the range before Chrome delivers the command.
+  const fallback = anchor?.url === location.href
+    ? new DOMRect(anchor.rect.x + anchor.scrollX - window.scrollX, anchor.rect.y + anchor.scrollY - window.scrollY, anchor.rect.width, anchor.rect.height)
+    : new DOMRect(window.innerWidth / 2, window.innerHeight / 2)
+  buildPopup(text, fallback, text.slice(0, 160))
+}
+
 export function initSelection(config: PageConfig) {
   currentConfig = config
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -429,6 +472,20 @@ export function initSelection(config: PageConfig) {
     }, 220)
   }
   // selectionchange also fires for page scripts. Require a real completed selection gesture.
+  window.addEventListener('pointerdown', event => {
+    if (!isTrustedInteraction(event)) return
+    menuAnchor = null
+    if (event.button === 2) {
+      const rect = selectionRect()
+      if (rect) rememberMenuAnchor(rect)
+    }
+  }, true)
+  window.addEventListener('contextmenu', event => {
+    if (!isTrustedInteraction(event)) return
+    const rect = selectionRect()
+    if (rect) rememberMenuAnchor(rect)
+    else if (!menuAnchor || menuAnchor.url !== location.href) rememberMenuAnchor(new DOMRect(event.clientX, event.clientY))
+  }, true)
   document.addEventListener('pointerup', event => {
     if (event.button === 0) onSelectionInput(event)
   }, true)

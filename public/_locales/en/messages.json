@@ -26,5 +26,9 @@
   "menuOptions": {
     "message": "Foxtranslate Settings",
     "description": "Context menu item: open the extension options page"
+  },
+  "menuTranslateSelection": {
+    "message": "Translate selected text (Foxtranslate)",
+    "description": "Context menu item for translating a text selection"
   }
 }

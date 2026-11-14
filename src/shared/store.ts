@@ -2,10 +2,12 @@ import { createEmptyCard, type Card } from 'ts-fsrs'
 import { DEFAULT_CONFIG, normalizeConfig, type Config } from './config'
 import type { WordItem } from './protocol'
 import { genId } from './ids'
+import type { FoxmoriAccount } from './foxmori'
 
 const KEY_CONFIG = 'tv:config_v1'
 const KEY_WORDS = 'tv:words_v1'
 const KEY_STATS = 'tv:stats_v1'
+const KEY_FOXMORI_ACCOUNT = 'tv:foxmori_account_v1'
 let configSnapshot: Promise<Config> | undefined
 let writes: Promise<unknown> = Promise.resolve()
 function mutate<T>(operation: () => Promise<T>): Promise<T> {
@@ -33,6 +35,28 @@ function storageSet(obj: Record<string, unknown>): Promise<void> {
 }
 
 // ===== config =====
+
+function accountSnapshot(raw: FoxmoriAccount | undefined): FoxmoriAccount | null {
+  const user = raw?.user
+  if (!raw?.authenticated || !user || !Number.isSafeInteger(user.id) || user.id < 1 || !Array.isArray(raw.groups)) return null
+  const text = (value: unknown) => typeof value === 'string' ? value : ''
+  return {
+    authenticated: true,
+    user: { id: user.id, email: text(user.email), username: text(user.username) },
+    groups: raw.groups.filter(group => group && Number.isSafeInteger(group.id) && group.id > 0)
+      .map(group => ({ id: group.id, name: text(group.name) })),
+  }
+}
+
+export async function getSavedFoxmoriAccount(): Promise<FoxmoriAccount | null> {
+  return accountSnapshot(await storageGet<FoxmoriAccount>(KEY_FOXMORI_ACCOUNT))
+}
+
+export async function saveFoxmoriAccount(value: FoxmoriAccount): Promise<void> {
+  const account = accountSnapshot(value)
+  if (!account) throw new Error('Foxmori 账户信息不完整，请重新连接。')
+  await storageSet({ [KEY_FOXMORI_ACCOUNT]: account })
+}
 
 function readConfig(): Promise<Config> {
   if (!configSnapshot) {

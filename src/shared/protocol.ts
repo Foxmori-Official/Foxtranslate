@@ -12,6 +12,7 @@ export type BgRequest =
   | { kind: 'extractTerms'; text: string; targetLang: string }
   | { kind: 'compareTranslate'; text: string; targetLang: string; engineIds: string[] }
   | { kind: 'getConfig' }
+  | { kind: 'clearTranslationCache' }
   | { kind: 'getPageConfig' }
   | { kind: 'setConfig'; patch: Partial<Config> }
   | { kind: 'setSubtitlePreferences'; patch: SubtitlePatch }
@@ -23,7 +24,8 @@ export type BgRequest =
   | { kind: 'getStats' }
   | { kind: 'testEngine'; provider?: string }
   | { kind: 'foxmoriLogin' }
-  | { kind: 'foxmoriAccount' }
+  | { kind: 'foxmoriAccount'; interactive?: boolean }
+  | { kind: 'savedFoxmoriAccount' }
   | { kind: 'foxmoriCreateKey'; groupId: number; accountId: number }
   | { kind: 'fetchModels'; provider: string }
   | { kind: 'setBadge'; active: boolean }
@@ -98,6 +100,7 @@ export interface TestEngineResult {
 // ===== background / popup → content =====
 export type ContentRequest =
   | { kind: 'togglePage' }
+  | { kind: 'translateSelectedText'; text: string; pageUrl: string }
   | { kind: 'pageState' }
   | { kind: 'configChanged'; config: PageConfig }
   | { kind: 'wordsChanged' }

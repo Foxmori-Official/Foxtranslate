@@ -11,7 +11,6 @@ interface Context {
   reload: () => Promise<void>
 }
 
-let account: FoxmoriAccount | null = null
 let keyConfigured = false
 let awaitingLogin = false
 let refreshOnReturn: (() => void) | null = null
@@ -113,6 +112,9 @@ export function renderModelField(provider: 'foxmori' | 'openai' | 'deepseek', ct
 }
 
 function renderFoxmoriAccount(ctx: Context): HTMLElement {
+  let account: FoxmoriAccount | null = null
+  let verified = false
+  let connectionRevision = 0
   const copy = (key: Parameters<typeof featureCopy>[0]) => featureCopy(key, ctx.config().uiLang)
   const panel = node('section', 'fox-account')
   const header = node('div', 'fox-account-header')
@@ -144,7 +146,15 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
       return
     }
     const accountId = account.user.id
-    accountBody.append(node('p', 'account-identity', account.user.email || account.user.username || 'Foxmori'))
+    accountBody.append(
+      node('p', 'hint account-verification', copy(verified ? 'signedInAccount' : 'previousAccount')),
+      node('p', 'account-identity', account.user.email || account.user.username || String(accountId)),
+      node('p', 'hint', copy('independentKey')),
+    )
+    if (!verified) {
+      accountBody.append(node('p', 'hint', copy('savedAccountHint')))
+      return
+    }
     if (!account.groups.length) {
       accountBody.append(node('p', 'hint', copy('noGroups')))
       return
@@ -187,23 +197,25 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
     accountBody.append(actions)
   }
 
-  async function connect(): Promise<void> {
+  async function connect(manual = true): Promise<void> {
     if (connecting || !panel.isConnected) return
+    connectionRevision++
     connecting = true
     status.setAttribute('role', 'status')
-    status.textContent = copy('connecting')
+    if (manual || !keyConfigured) status.textContent = copy('connecting')
     connectButton.disabled = true
     try {
-      const connected = await ctx.send<FoxmoriAccount>({ kind: 'foxmoriAccount' })
+      const connected = await ctx.send<FoxmoriAccount>({ kind: 'foxmoriAccount', interactive: manual })
       if (!panel.isConnected) return
       account = connected
+      verified = true
       awaitingLogin = false
-      status.textContent = ''
+      status.textContent = keyConfigured && ctx.config().engine.keys.foxmori ? copy('keyCreated') : ''
     } catch (error) {
       if (!panel.isConnected) return
-      account = null
-      status.setAttribute('role', 'alert')
-      status.textContent = message(error)
+      verified = false
+      status.setAttribute('role', manual || !account ? 'alert' : 'status')
+      status.textContent = manual || !account ? message(error) : ''
     } finally {
       renderAccount()
       connecting = false
@@ -211,7 +223,7 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
     }
   }
 
-  refreshOnReturn = () => { if (awaitingLogin) void connect() }
+  refreshOnReturn = () => { if (awaitingLogin) void connect(false) }
   login.addEventListener('click', async () => {
     awaitingLogin = true
     login.disabled = true
@@ -229,6 +241,12 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
   toolbar.append(login, connectButton)
   renderAccount()
   panel.append(header, accountBody, toolbar, status)
+  void ctx.send<FoxmoriAccount | null>({ kind: 'savedFoxmoriAccount' }).then(saved => {
+    if (!panel.isConnected || connectionRevision || !saved?.user) return
+    account = saved
+    renderAccount()
+    void connect(false)
+  }).catch(() => {})
   return panel
 }
 

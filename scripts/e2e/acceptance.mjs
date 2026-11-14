@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { createServer } from 'node:http'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { chooseTrustedOption, selectParagraph } from './helpers.mjs'
 
 const profile = await mkdtemp(join(tmpdir(), 'foxtranslate-browser-'))
 const screenshots = process.env.FOXTRANSLATE_SCREENSHOTS
-const extension = resolve(process.env.FOXTRANSLATE_EXTENSION_DIR || 'dist')
+const sourceExtension = resolve(process.env.FOXTRANSLATE_EXTENSION_DIR || 'dist')
+const extension = join(profile, 'extension')
 const fixture = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.setHeader('Content-Security-Policy', "img-src 'self'")
@@ -18,6 +19,23 @@ await new Promise(done => fixture.listen(0, '127.0.0.1', done))
 const address = 'http://127.0.0.1:' + fixture.address().port
 let browser
 try {
+  await cp(sourceExtension, extension, { recursive: true })
+  const contentPath = join(extension, 'content.js')
+  const contentScript = await readFile(contentPath, 'utf8')
+  // Simulate an existing tab losing its receiver after the extension is reloaded.
+  await writeFile(contentPath, `
+    const fixtureRuntimeListeners = [];
+    const fixtureAddListener = chrome.runtime.onMessage.addListener.bind(chrome.runtime.onMessage);
+    chrome.runtime.onMessage.addListener = listener => {
+      fixtureRuntimeListeners.push(listener);
+      fixtureAddListener(listener);
+    };
+    document.addEventListener('fixture:disconnect', () => {
+      if (location.origin !== 'https://foxmori.com') return;
+      for (const listener of fixtureRuntimeListeners) chrome.runtime.onMessage.removeListener(listener);
+      document.documentElement.dataset.fixtureDisconnected = 'true';
+    });
+  ` + contentScript)
   browser = await chromium.launchPersistentContext(profile, {
     channel: 'chromium',
     executablePath: process.env.FOXTRANSLATE_TEST_CHROMIUM,
@@ -398,12 +416,15 @@ try {
 
   // The extension reuses the first-party session and never asks for its password.
   let createdKeys = 0
+  let siteLoads = 0
   let availableGroups = []
+  let pauseKeyReply
   const consoleRequests = []
   const foxmoriFixture = async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
     if (path === '/') {
+      siteLoads++
       await route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<a href="/fixture-login">登录测试账户</a>' })
       return
     }
@@ -421,7 +442,7 @@ try {
       return
     }
     if (path === '/api/console/user/profile') {
-      await route.fulfill({ json: { code: 0, data: { id: accountId, email: 'fixture@example.test', username: 'Fixture' } } })
+      await route.fulfill({ json: { code: 0, data: { id: accountId, email: accountId === 12 ? 'fixture@example.test' : 'second@example.test', username: 'Fixture' } } })
     } else if (path === '/api/console/groups/available') {
       await route.fulfill({ json: { code: 0, data: availableGroups } })
     } else if (path === '/api/console/foxtranslate/key' && request.method() === 'POST') {
@@ -440,6 +461,7 @@ try {
         return
       }
       createdKeys++
+      await pauseKeyReply?.()
       await route.fulfill({ json: { code: 0, data: { key: 'sk-fixture-foxmori' } } })
     } else {
       await route.fulfill({ status: 404, json: { message: 'Unknown fixture route' } })
@@ -470,9 +492,23 @@ try {
   await loginButton.click()
   const site = await siteOpened
   await site.waitForURL('https://foxmori.com/#models')
+  async function disconnectSite() {
+    await site.evaluate(() => document.dispatchEvent(new Event('fixture:disconnect')))
+    assert.equal(await site.locator('html').getAttribute('data-fixture-disconnected'), 'true')
+  }
+  await disconnectSite()
+  const loadsBeforeLogin = siteLoads
+  // The login action must repair the existing tab, including a same-URL navigation.
+  await loginButton.click()
+  await provider.waitForFunction(() => !Array.from(document.querySelectorAll('button')).find(button => button.textContent === '登录 Foxmori')?.disabled)
+  assert.equal(siteLoads, loadsBeforeLogin + 1)
+  assert.equal(browser.pages().filter(page => page.url().startsWith('https://foxmori.com/')).length, 1)
+  await disconnectSite()
+  const loadsBeforeConnect = siteLoads
   const connect = provider.getByRole('button', { name: '连接已登录账户' })
   await connect.click()
   await provider.getByText('请先在 Foxmori 主站登录', { exact: false }).waitFor()
+  assert.equal(siteLoads, loadsBeforeConnect + 1)
   await site.route(url => url.hostname === 'foxmori.com', foxmoriFixture)
   await site.goto('https://foxmori.com/fixture-login')
   await site.getByText('已登录测试账户').waitFor()
@@ -480,7 +516,28 @@ try {
   await provider.getByRole('button', { name: '前往 Foxmori 订阅', exact: true }).waitFor()
   assert.equal(await provider.getByRole('button', { name: '创建 Foxmori 密钥' }).count(), 0)
   availableGroups = [{ id: 7, name: '测试套餐' }]
+  await site.evaluate(() => new Promise(resolve => {
+    void navigator.locks.request('foxmori-console-session', () => new Promise(release => {
+      window.releaseFixtureSessionLock = release
+      resolve()
+    }))
+  }))
+  const beforeLockedConnect = consoleRequests.length
   await connect.click()
+  await provider.locator('.account-status').getByText('正在连接…', { exact: true }).waitFor()
+  try {
+    assert.equal(await site.evaluate(async () => {
+      for (let i = 0; i < 100; i++) {
+        const { pending } = await navigator.locks.query()
+        if (pending.some(lock => lock.name === 'foxmori-console-session')) return true
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+      return false
+    }), true)
+    assert.equal(consoleRequests.length, beforeLockedConnect)
+  } finally {
+    await site.evaluate(() => window.releaseFixtureSessionLock())
+  }
   await provider.getByText('fixture@example.test', { exact: true }).waitFor()
   for (const width of [320, 768]) {
     await provider.setViewportSize({ width, height: 780 })
@@ -511,7 +568,8 @@ try {
   const requestCount = consoleRequests.length
   await createKey.click()
   await provider.getByText('密钥已配置，请获取模型列表并选择模型。', { exact: true }).waitFor()
-  assert.deepEqual(consoleRequests.slice(requestCount), ['POST /api/console/foxtranslate/key'])
+  assert.deepEqual(consoleRequests.slice(requestCount).filter(request => request.startsWith('POST ')), ['POST /api/console/foxtranslate/key'])
+  assert.ok(!consoleRequests.some(request => request.includes('/api/console/keys')))
   assert.equal(createdKeys, 1)
   assert.equal((await config({})).engine.keys.foxmori, 'sk-fixture-foxmori')
   assert.equal((await config({})).engine.provider, 'google')
@@ -536,18 +594,64 @@ try {
   assert.equal(await modelField.inputValue(), 'fixture-chat')
   await provider.locator('.engine-detail').evaluate(detail => {
     const model = detail.querySelector('.provider-model-input')
-    const timeout = detail.querySelector('.engine-test input[type="number"]')
     model.value = 'fixture-translate'
     model.dispatchEvent(new Event('change'))
-    timeout.value = '25000'
-    timeout.dispatchEvent(new Event('change'))
   })
   await provider.getByRole('button', { name: '测试连接', exact: true }).click()
   await provider.getByText('你好 · Foxmori 测试', { exact: false }).waitFor()
   const testedEngine = (await config({})).engine
   assert.equal(testedEngine.provider, 'google')
   assert.equal(testedEngine.foxmori.model, 'fixture-translate')
-  assert.equal(testedEngine.timeoutMs, 25000)
+  assert.equal(Object.hasOwn(testedEngine, 'timeoutMs'), false)
+  assert.equal(await provider.locator('.engine-test input[type="number"]').count(), 0)
+  // Reopening restores the website identity independently of a key from another account.
+  const independentKey = 'sk-fixture-independent-key'
+  await config({ engine: { ...testedEngine, keys: { ...testedEngine.keys, foxmori: independentKey } } })
+  await site.close()
+  const reopened = await browser.newPage()
+  await reopened.goto(origin + '/options.html#engine/foxmori')
+  await reopened.locator('.account-identity').getByText('fixture@example.test', { exact: true }).waitFor()
+  await reopened.getByText('上次连接账户', { exact: true }).waitFor()
+  assert.equal(await reopened.getByLabel('API Key', { exact: true }).inputValue(), independentKey)
+  assert.equal(createdKeys, 1)
+  assert.equal(browser.pages().filter(page => page.url().startsWith('https://foxmori.com/')).length, 0)
+  const nextSessionOpened = browser.waitForEvent('page')
+  await reopened.getByRole('button', { name: '连接已登录账户', exact: true }).click()
+  const nextSession = await nextSessionOpened
+  await nextSession.waitForURL('https://foxmori.com/#models')
+  await reopened.getByText('当前登录账户', { exact: true }).waitFor()
+  assert.equal(await reopened.getByLabel('API Key', { exact: true }).inputValue(), independentKey)
+  await nextSession.goto('https://foxmori.com/fixture-switch-account')
+  await nextSession.getByText('已登录测试账户').waitFor()
+  await reopened.getByRole('button', { name: '连接已登录账户', exact: true }).click()
+  await reopened.locator('.account-identity').getByText('second@example.test', { exact: true }).waitFor()
+  await reopened.getByText('当前登录账户', { exact: true }).waitFor()
+  assert.equal(await reopened.getByLabel('API Key', { exact: true }).inputValue(), independentKey)
+  const keyRequestSent = nextSession.waitForRequest(request => request.method() === 'POST' && request.url() === 'https://foxmori.com/api/console/foxtranslate/key')
+  let releaseKeyReply
+  const keyReplyPending = new Promise(resolve => { releaseKeyReply = resolve })
+  pauseKeyReply = () => keyReplyPending
+  const replacementKey = 'sk-fixture-manually-replaced'
+  try {
+    await reopened.getByRole('button', { name: '创建 Foxmori 密钥' }).click()
+    await keyRequestSent
+    const keyInput = reopened.getByLabel('API Key', { exact: true })
+    await keyInput.fill(replacementKey)
+    await keyInput.press('Tab')
+    await reopened.getByText('已保存', { exact: true }).waitFor()
+    assert.equal((await config({})).engine.keys.foxmori, replacementKey)
+  } finally {
+    releaseKeyReply()
+    pauseKeyReply = undefined
+  }
+  await reopened.locator('.account-status[role="alert"]').filter({ hasText: '已保留当前配置' }).waitFor()
+  await reopened.locator('.account-identity').getByText('second@example.test', { exact: true }).waitFor()
+  assert.equal((await config({})).engine.keys.foxmori, replacementKey)
+  assert.equal(createdKeys, 2)
+  await reopened.close()
+  await nextSession.close()
+  await config({ engine: testedEngine })
+  await provider.evaluate(() => scrollTo(0, 0))
   for (const width of [1024, 768, 390, 320]) {
     await provider.setViewportSize({ width, height: 780 })
     await leftRight(provider, '.sidebar', '.main')

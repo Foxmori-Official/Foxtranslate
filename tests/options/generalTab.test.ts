@@ -4,7 +4,7 @@
  * 通用标签页 + 界面语言（uiLang）测试：
  * - 通用页无「源语言」卡片，新增「界面语言」下拉（简体中文/English，写 config.uiLang）
  * - zh-CN 时导航标签与现状完全一致；切换 en 后导航标签/页标题/通用页标签即时变英文
- * - 引擎标签页只有 2 张卡片（引擎选择、批量翻译），超时输入在引擎大卡片内、测试连接按钮上方
+ * - 引擎标签页只有 2 张卡片（引擎选择、批量翻译），固定请求超时，不显示超时设置
  *
  * main.ts 在 document 存在时自动 init()，因此每个用例先装 chrome stub 再动态 import。
  */
@@ -168,7 +168,7 @@ describe("通用标签页", () => {
     ).toBe("en");
   });
 
-  it("引擎标签页只有 2 张卡片（引擎选择、翻译性能），超时输入在引擎卡片内、测试连接按钮上方", async () => {
+  it("引擎标签页保留服务和性能卡片，移除超时设置并保留连接测试", async () => {
     await boot(structuredClone(DEFAULT_CONFIG));
     qs<HTMLButtonElement>('[data-tab="engine"]').click();
     await flush();
@@ -179,33 +179,12 @@ describe("通用标签页", () => {
     expect(cards[1].querySelector(".card-title")?.textContent).toBe("翻译性能");
     expect(cardTitles()).not.toContain("请求超时");
 
-    // 超时输入在引擎大卡片内
     const engineCard = cards[0];
-    const timeoutRow = Array.from(
-      engineCard.querySelectorAll(".field"),
-    ).find((r) => r.querySelector(".field-label")?.textContent === "超时（毫秒）");
-    if (!timeoutRow) throw new Error("引擎卡片内未找到超时行");
-    const timeoutInput = qs<HTMLInputElement>(
-      'input[type="number"]',
-      timeoutRow,
-    );
-    expect(Number(timeoutInput.value)).toBe(stored.engine.timeoutMs);
-
-    // 超时行在「测试连接」按钮上方，且上方有分隔线
-    const testBtn = Array.from(
-      engineCard.querySelectorAll("button"),
-    ).find((b) => b.textContent === "测试连接");
-    if (!testBtn) throw new Error("未找到测试连接按钮");
-    expect(
-      timeoutRow.compareDocumentPosition(testBtn) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(engineCard.querySelector('input[type="number"]')).toBeNull();
+    expect(engineCard.textContent).not.toContain("超时（毫秒）");
+    expect(Array.from(engineCard.querySelectorAll("button")).some(
+      button => button.textContent === "测试连接",
+    )).toBe(true);
     expect(engineCard.querySelector("hr.engine-divider")).toBeTruthy();
-
-    // 修改超时写入 config.engine.timeoutMs
-    timeoutInput.value = "30000";
-    timeoutInput.dispatchEvent(new Event("change"));
-    await flush();
-    expect(stored.engine.timeoutMs).toBe(30000);
   });
 });

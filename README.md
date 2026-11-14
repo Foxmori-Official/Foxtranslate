@@ -2,24 +2,24 @@
   <img src="public/icons/foxtranslate-logo.png" alt="" width="80" height="80">
   <h1>Foxtranslate</h1>
   <p>在浏览器里双语阅读网页、看字幕、翻译文档，随手收藏生词</p>
-  <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">下载安装包</a> · <a href="#快速安装">安装步骤</a> · <a href="README.en.md">English</a></p>
+  <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">下载安装包</a> · <a href="#快速安装">安装步骤</a> · <a href="docs/README.en.md">English</a></p>
 </div>
 
 最低需要 Chrome / Edge 140，以支持扩展本地存储隔离和文档解析。
 
 ## 快速安装
 
-1. 从 [GitHub Releases](https://github.com/Foxmori-Official/Foxtranslate/releases/latest) 下载 `foxtranslate-版本号.zip` 并解压。使用发布附件中的安装包。
+1. 从发布附件下载 `foxtranslate-版本号.zip` 并解压。[GitHub 最新发布](https://github.com/Foxmori-Official/Foxtranslate/releases/latest)
 2. 打开 `chrome://extensions` 或 `edge://extensions`，开启开发者模式，点击「加载已解压的扩展程序」，选择包含 `manifest.json` 的文件夹。
-3. 按引导选择目标语言和翻译服务，把 Foxtranslate 固定到工具栏。打开普通网页，点击「翻译此页」。
+3. 按引导选择目标语言和翻译服务，把 Foxtranslate 固定到工具栏。默认免费引擎可直接使用。打开普通网页，点击「翻译此页」。
 
-默认免费引擎可直接使用。更新扩展后，刷新已打开的网页。此 README 介绍当前源码，下载包的功能以对应的[发布说明](https://github.com/Foxmori-Official/Foxtranslate/releases)为准。
+设置侧边栏底部的「关于与更新」显示当前版本。打开该页面后点击「检查更新」，查找 GitHub 最新正式版。升级时将新版文件复制到原扩展目录，在扩展管理页点击「重新加载」，然后刷新已打开的网页。
 
-设置侧边栏的“关于与更新”旁显示当前版本。点击该入口可查询 GitHub 最新正式版。手动安装的扩展可将更新文件复制到原目录，再在扩展管理页重新加载。
+本页介绍当前源码。每个下载包的功能以对应版本的发布说明为准。[版本记录](CHANGELOG.md)
 
 ## 可以用它做什么
 
-- **阅读外文网页**。在双语对照与仅译文之间切换，划词看译文、按住修饰键翻译一段，或用快捷键翻译正在编辑的文本。
+- **阅读外文网页**。在双语对照与仅译文之间切换。划词后可右键选择「翻译所选文字」，鼠标停在段落上时可按设定的修饰键翻译，也可用快捷键翻译正在编辑的文本。
 - **看视频和会议字幕**。在 YouTube 播放器点击狐狸图标，开启当前视频的字幕翻译。在 Google Meet、Microsoft Teams 或 Zoom 网页端，先打开会议平台的字幕。
 - **翻译并校订文档**。支持 PDF、EPUB、DOCX、PPTX、XLSX、HTML、JSON、Markdown、TXT、SRT、VTT、ASS。翻译后可逐段校订并下载，PDF 导出为 HTML。
 - **收藏与复习生词**。划词时保存生词和例句，通过 FSRS 闪卡复习到期词汇，也可在网页上高亮已收藏的词。
@@ -51,8 +51,8 @@ npm ci
 npm run build
 ```
 
-开发细节见[架构说明](ARCHITECTURE.md)和[构建、验证与发布指南](docs/UPDATING.md)。
+开发细节见 [架构说明](docs/architecture.md) 和 [构建、验证与发布指南](docs/UPDATING.md)。
 
 ## 致谢与许可
 
-Foxtranslate 使用 GPL-3.0 许可。感谢 KISS Translator、FluentRead、Read Frog、Interline、OpenImmersive Translator 和 MTranBrowser 的作者与贡献者。 [许可证](LICENSE) · [第三方归属与参考方向](THIRD_PARTY_NOTICES.md)
+Foxtranslate 使用 GPL-3.0 许可。感谢 KISS Translator、FluentRead、Read Frog、Interline、OpenImmersive Translator 和 MTranBrowser 的作者与贡献者。 [许可证](LICENSE) · [第三方归属与参考方向](docs/third-party.md)

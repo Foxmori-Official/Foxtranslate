@@ -26,6 +26,8 @@ Foxtranslate 是开源双语翻译扩展。扩展不要求注册账号，不内�
 
 ### 本地存储
 
+连接 Foxmori 时，会在本机保存该次连接的账户 ID、邮箱、用户名和可用套餐，用于重新打开设置时显示上次连接信息。登录状态在连接主站时核验，API Key 独立配置。
+
 设置、API Key、生词、复习记录与翻译缓存保存在 `chrome.storage.local`。扩展将这份存储限制在自己的界面和后台，网页内容脚本通过后台获取所需的控件设置和高亮词条。本地存储不是加密保险箱，译文缓存可能包含还原后的敏感内容。
 
 ### 控制与删除
@@ -59,6 +61,8 @@ Foxtranslate is an open-source bilingual translation extension. The extension re
 Optional masking replaces recognized email, phone, bank-card, ID, API-key and private-key patterns in translation text, page context, language detection and AI inputs before sending them. Each source placeholder is restored at most once in a translation. Masking cannot identify every secret and does not remove the API key used to authenticate with the selected service.
 
 ### Local storage
+
+Connecting Foxmori saves the account ID, email, username and available groups locally to display the last connected account when Settings reopens. Connecting to the website verifies its session. The API key is configured independently.
 
 Settings, API keys, saved vocabulary, review records and translation caches use `chrome.storage.local`, restricted to extension pages and the background worker. Content scripts request the settings and vocabulary highlights they need from the worker. This storage is not an encrypted vault. Translation caches can contain restored sensitive text.
 

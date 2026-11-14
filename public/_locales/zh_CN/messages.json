@@ -26,5 +26,9 @@
   "menuOptions": {
     "message": "Foxtranslate 设置",
     "description": "右键菜单：打开扩展设置页"
+  },
+  "menuTranslateSelection": {
+    "message": "翻译所选文字（Foxtranslate）",
+    "description": "右键菜单：翻译选中的文字"
   }
 }

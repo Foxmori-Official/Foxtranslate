@@ -13,7 +13,8 @@ beforeEach(() => vi.stubGlobal('chrome', { runtime: { id, getURL: (p: string) =>
 afterEach(() => vi.unstubAllGlobals())
 
 it.each<BgRequest>([
-  { kind: 'getConfig' }, { kind: 'setConfig', patch: { uiLang: 'en' } }, { kind: 'getWords' },
+  { kind: 'clearTranslationCache' },
+  { kind: 'getConfig' }, { kind: 'savedFoxmoriAccount' }, { kind: 'setConfig', patch: { uiLang: 'en' } }, { kind: 'getWords' },
   { kind: 'deleteWord', id: 'word' }, { kind: 'testEngine' }, { kind: 'foxmoriAccount' },
   { kind: 'foxmoriCreateKey', groupId: 1, accountId: 1 }, { kind: 'fetchModels', provider: 'foxmori' },
 ])('keeps $kind in an extension page, including options opened in a normal tab', action => {

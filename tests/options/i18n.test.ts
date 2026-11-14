@@ -105,7 +105,6 @@ const EXPECTED_KEYS = [
   "opt.s18",
   "opt.s19",
   "opt.s20",
-  "opt.s21",
   "opt.s22",
   "opt.s23",
   "opt.s24",

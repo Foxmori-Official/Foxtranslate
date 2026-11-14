@@ -1,5 +1,5 @@
 // PageTranslator：整页双语翻译编排。
-// IntersectionObserver 可见才译 + 并发队列 + MutationObserver 动态跟进 + 完全可逆开关。
+// IntersectionObserver 提前翻译视野附近的内容 + 并发队列 + MutationObserver 动态跟进。
 import { discoverCandidates, coveredByParent, isValidUnit, extractText, buildTranslationHtml } from './dom'
 import { injectTranslation, removeTranslation, removeAllTranslations, showLoading, showError, clearStatus } from './render'
 import { normalizeText, sameText } from '../core/text'
@@ -7,8 +7,9 @@ import type { PageConfig } from '../shared/pageConfig'
 import type { BgResponse, TranslateResult } from '../shared/protocol'
 import { isAiProvider } from '../shared/engines'
 import { normalizeConcurrency, normalizeBatchMaxTexts } from '../shared/translationLimits'
+import { ct } from './uiLang'
 
-const IO_ROOT_MARGIN = '400px 0px'
+const IO_ROOT_MARGIN = '1200px 0px'
 const MO_DEBOUNCE_MS = 120
 const SCAN_BUDGET_MS = 6
 const SCAN_UNITS_PER_SLICE = 128
@@ -90,7 +91,7 @@ async function translateLongText(text: string, config: TranslationSettings, sign
 }
 
 /** 立即翻译单个元素（悬停翻译复用）。返回是否成功注入。 */
-export async function translateElement(el: Element, config: TranslationSettings, signal?: AbortSignal): Promise<boolean> {
+export async function translateElement(el: Element, config: TranslationSettings, signal?: AbortSignal, retryPage?: () => void): Promise<boolean> {
   if (signal?.aborted || !el.isConnected) return false
   if (el.hasAttribute('data-tv-translated')) return true
   const extracted = extractText(el)
@@ -114,7 +115,8 @@ export async function translateElement(el: Element, config: TranslationSettings,
     if (!current()) return false
     showError(el, {
       message: err instanceof Error ? err.message : String(err),
-      onRetry: () => void translateElement(el, config, signal),
+      onRetry: retryPage ?? (() => void translateElement(el, config, signal)),
+      retryLabel: retryPage ? ct('render.retryPage', '重试本页全部失败内容') : undefined,
     })
     return false
   }
@@ -125,6 +127,8 @@ export class PageTranslator {
   private io: IntersectionObserver | null = null
   private mo: MutationObserver | null = null
   private pending = new Set<Element>()
+  private failed = new Set<Element>()
+  private retries = new Set<Element>()
   private observed = new Set<Element>()
   private working = new WeakMap<Element, AbortController>()
   private scanRoots = new Set<Element>()
@@ -150,6 +154,19 @@ export class PageTranslator {
 
   /** Apply a larger window immediately; a smaller window lets active work finish. */
   refreshConcurrency(): void {
+    this.drain()
+  }
+
+  retryFailed(): void {
+    if (!this.session) return
+    for (const el of this.failed) {
+      if (el.isConnected && !this.working.has(el)) {
+        clearStatus(el)
+        this.retries.add(el)
+      }
+    }
+    this.failed.clear()
+    this.failedCount = 0
     this.drain()
   }
 
@@ -201,6 +218,9 @@ export class PageTranslator {
     this.scans = []
     this.observed.clear()
     this.pending.clear()
+    this.retries.clear()
+    this.failed.clear()
+    this.failedCount = 0
     removeAllTranslations()
   }
 
@@ -215,6 +235,9 @@ export class PageTranslator {
     const previous = unitSources.get(el)
     if (previous === undefined || sourceText(el) === previous) return
     unitRequests.delete(el)
+    this.failed.delete(el)
+    this.retries.delete(el)
+    this.failedCount = this.failed.size
     unitSources.delete(el)
     this.working.get(el)?.abort()
     const wrapper = el.querySelector(':scope > tv-translation')
@@ -308,8 +331,9 @@ export class PageTranslator {
     const batchSize = config.batch.enabled && isAiProvider(config.engine.provider)
       ? normalizeBatchMaxTexts(config.batch.maxTexts) : 1
     const window = normalizeConcurrency(config.batch.concurrency) * batchSize
-    while (this.session && this.running < window && this.pending.size) {
-      const el = this.pending.values().next().value as Element
+    while (this.session && this.running < window && (this.retries.size || this.pending.size)) {
+      const el = (this.retries.size ? this.retries : this.pending).values().next().value as Element
+      this.retries.delete(el)
       this.unobserve(el)
       if (!el.isConnected || el.hasAttribute('data-tv-translated')) continue
       const language = this.getConfig().general.targetLang
@@ -330,10 +354,11 @@ export class PageTranslator {
     signal.addEventListener('abort', abort, { once: true })
     this.working.set(el, controller)
     try {
-      const ok = await translateElement(el, this.getConfig(), controller.signal)
+      const ok = await translateElement(el, this.getConfig(), controller.signal, () => this.retryFailed())
       if (controller.signal.aborted) return
       if (ok) this.translatedCount += 1
-      else this.failedCount += 1
+      else if (el.querySelector(':scope > [data-tv-error]')) this.failed.add(el)
+      this.failedCount = this.failed.size
     } finally {
       signal.removeEventListener('abort', abort)
       if (this.working.get(el) === controller) this.working.delete(el)
