@@ -67,7 +67,7 @@ npm run test:browser
 
 ## 发布
 
-1. 同步更新 `package.json`、`package-lock.json` 和 `public/manifest.json` 的版本。以 `docs/releases/v版本号.md` 作为 GitHub Release 正文的唯一来源，说明用户能感知的变化，统一使用「安装与升级」标题和无序列表，并用一行概述已完成的验证。在 [版本记录](../CHANGELOG.md) 追加日期与说明链接。
+1. 同步更新 `package.json`、`package-lock.json` 和 `public/manifest.json` 的版本。以 `docs/releases/v版本号.md` 作为 GitHub Release 正文的唯一来源，说明用户能感知的变化，统一使用「安装与升级」标题和无序列表。Release 正文聚焦功能变化、修复与安装升级说明。在 [版本记录](../CHANGELOG.md) 追加日期与说明链接。
 2. 在 `main` 提交并通过 CI。对通过验证的提交推送版本标签，例如 `v0.0.6`。发布工作流会验证标签和包版本，运行检查，生成 ZIP 与 `SHA256SUMS.txt`，然后公开 GitHub Release。
 3. 从 Release 下载 ZIP，用全新浏览器配置加载并检查安装。覆盖升级时检查原有配置、生词和快捷键。商店包另行提交审核。
 4. 修订已发布版本的说明时，在 `main` 更新对应 Markdown，然后手动运行「发布版本」工作流并填写该版本标签。这个入口只更新 Release 正文。
