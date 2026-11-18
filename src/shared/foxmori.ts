@@ -9,7 +9,7 @@ export interface FoxmoriAccount {
 }
 export type FoxmoriBridgeRequest =
   | { kind: 'foxmoriBridge'; action: 'ready' | 'account' }
-  | { kind: 'foxmoriBridge'; action: 'createKey'; groupId: number; accountId: number }
+  | { kind: 'foxmoriBridge'; action: 'createKey'; groupId: number; accountId: number; reconcile?: boolean }
 
 export function isFoxmoriSite(value: string): boolean {
   try {

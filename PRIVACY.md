@@ -1,6 +1,6 @@
 # Foxtranslate 隐私政策 / Privacy Policy
 
-生效日期 2026-11-15。适用于 Foxtranslate 的 Chrome / Edge 扩展。
+生效日期 2026-11-19。适用于 Foxtranslate 的 Chrome / Edge 扩展。
 
 ## 中文
 
@@ -18,7 +18,7 @@ Foxtranslate 是开源双语翻译扩展。扩展不要求注册账号，不内�
 - YouTube 字幕从 YouTube 获取。播放器中的狐狸图标打开字幕菜单，会议翻译处理平台已提供的字幕文本。当前实现不录制麦克风或视频音频。
 - 设置页查询模型列表和测试连接时会访问配置端点，并可携带该服务的 API Key。
 - 点击「检查更新」时，扩展向 GitHub 查询公开的正式版本。版本对比在本机完成，请求不携带账号凭证、翻译文本或设置内容。
-- 选择连接 Foxmori 后，扩展通过已登录的主站读取账户和可用分组。点击创建密钥时，扩展将新建或复用该分组的 Foxtranslate 扩展专用密钥并保存在浏览器。密码和账户会话由主站处理。
+- 连接 Foxmori 由用户主动发起，通过已登录的主站读取账户和可用分组。创建密钥使用通用接口，名称默认为 Foxtranslate；结果不明确时会读取包含完整密钥的列表核对，仅把选中的有效密钥保存在浏览器。密钥可手动填写或共用，主站退出不影响密钥使用。密码和账户会话由主站处理。
 
 ### 数据用途与有限使用
 
@@ -60,7 +60,7 @@ Foxtranslate is an open-source bilingual translation extension. The extension re
 - Captions are retrieved from YouTube. The fox icon opens the player caption menu. Meeting translation processes captions supplied by the meeting platform. The current implementation does not record the microphone or video audio.
 - Model discovery and connection tests in Settings can contact configured endpoints with the associated API Key.
 - Clicking Check for updates queries public release metadata on GitHub. The extension compares versions locally and sends no account credentials, translation text or settings.
-- Connecting Foxmori uses the signed-in website session to read the account and available groups. When you create a key, the extension saves a new or existing Foxtranslate extension key for that group in this browser. Foxmori handles account passwords and session credentials.
+- Connecting Foxmori is initiated by the user and uses the signed-in website session to read the account and available groups. Key creation uses the generic API with Foxtranslate as the default name. Uncertain results are checked against the full key list; only the selected valid key is saved in this browser. Keys can be entered manually or shared, and remain usable after website logout. Foxmori handles account passwords and session credentials.
 
 ### Purpose and limited use
 

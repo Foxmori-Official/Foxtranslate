@@ -655,7 +655,6 @@ const providerContext = {
   reload: async () => {
     await pendingConfigSave
     config = await sendBg<Config>({ kind: 'getConfig' })
-    renderContent()
   },
 }
 

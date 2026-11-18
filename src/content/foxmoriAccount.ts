@@ -4,28 +4,23 @@ import { ok, err } from '../shared/protocol'
 type RecordValue = Record<string, unknown>
 function record(value: unknown): RecordValue { return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {} }
 function list(value: unknown): unknown[] { return Array.isArray(value) ? value : Array.isArray(record(value).items) ? record(value).items as unknown[] : [] }
+const pendingKeys = new Set<string>()
+const validKey = (key: unknown): key is string => typeof key === 'string' && Boolean(key.trim()) && !/[•*]/.test(key)
 
 /** Runs only in a first-party tab; HttpOnly authentication stays with the website. */
 export async function foxmoriAccountRequest(msg: FoxmoriBridgeRequest, fetcher: typeof fetch = fetch): Promise<FoxmoriAccount | { apiKey: string } | { ready: true }> {
   if (msg.action === 'ready') return { ready: true }
-  // Bound the whole operation, including time spent waiting for the website session lock.
-  const signal = AbortSignal.timeout(20_000)
+  // Bound the session lock and request; uncertain writes get a separate bounded read.
+  let signal = AbortSignal.timeout(20_000)
   async function api(path: string, body?: unknown): Promise<unknown> {
     const response = await fetcher(FOXMORI_SITE + '/api/console/' + path, {
       method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
       headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body), signal,
     })
-    if (response.status === 401) {
-      throw new Error(path === 'foxtranslate/key'
-        ? '请在 Foxmori 主站重新登录，再返回扩展连接账户。'
-        : '请先在 Foxmori 主站登录，再返回扩展连接账户。')
-    }
-    if (response.status === 409 && path === 'foxtranslate/key') {
-      throw new Error('Foxmori 登录账户已切换，请重新连接后再创建密钥。')
-    }
     const payload = record(await response.json().catch(() => ({})))
-    if (!response.ok || payload.code !== 0) throw new Error(typeof payload.message === 'string' ? payload.message : 'Foxmori 服务暂不可用，请稍后重试。')
+    if (!response.ok || payload.code !== 0) throw Object.assign(new Error(
+      typeof payload.message === 'string' ? payload.message : 'Foxmori 服务暂不可用，请稍后重试。'), { status: response.ok ? undefined : response.status })
     return payload.data
   }
   async function request() {
@@ -35,12 +30,32 @@ export async function foxmoriAccountRequest(msg: FoxmoriBridgeRequest, fetcher: 
       if (!Number.isSafeInteger(accountId) || accountId < 1 || !Number.isSafeInteger(groupId) || groupId < 1) {
         throw new Error('请选择有效的 Foxmori 账户和套餐分组。')
       }
-      // The server checks the expected account and issues the key using the same session.
-      const { key } = record(await api('foxtranslate/key', { account_id: accountId, group_id: groupId }))
-      if (typeof key !== 'string' || !key.trim() || /[•*]/.test(key)) {
-        throw new Error('Foxmori 未返回有效密钥，请检查主站的 API 密钥页。')
+      const operation = `${accountId}:${groupId}`
+      if (!msg.reconcile && !pendingKeys.has(operation)) {
+        pendingKeys.add(operation)
+        try {
+          const { key } = record(await api('keys', { name: 'Foxtranslate', group_id: groupId, account_id: accountId }))
+          if (validKey(key)) {
+            pendingKeys.delete(operation)
+            return { apiKey: key }
+          }
+        } catch (error) {
+          const status = (error as { status?: number }).status
+          if (status && status < 500 && status !== 408) {
+            pendingKeys.delete(operation)
+            throw error
+          }
+        }
       }
-      return { apiKey: key }
+      // An uncertain POST is reconciled with a read, never automatically replayed.
+      pendingKeys.add(operation)
+      signal = AbortSignal.timeout(5_000)
+      const key = list(await api('keys?page=1&page_size=100')).map(record).find(key =>
+        key.user_id === accountId && (key.group_id ?? record(key.group).id) === groupId &&
+        key.name === 'Foxtranslate' && key.status === 'active' && validKey(key.key))
+      if (!key) throw new Error('密钥创建结果尚未确认，请在主站密钥列表核对并复制密钥，避免重复创建。')
+      pendingKeys.delete(operation)
+      return { apiKey: key.key as string }
     }
     const profile = record(await api('user/profile'))
     if (!Number.isSafeInteger(profile.id) || Number(profile.id) < 1) throw new Error('账户信息不完整，请重新登录 Foxmori。')

@@ -416,6 +416,7 @@ try {
 
   // The extension reuses the first-party session and never asks for its password.
   let createdKeys = 0
+  const storedKeys = []
   let siteLoads = 0
   let availableGroups = []
   let pauseKeyReply
@@ -445,15 +446,17 @@ try {
       await route.fulfill({ json: { code: 0, data: { id: accountId, email: accountId === 12 ? 'fixture@example.test' : 'second@example.test', username: 'Fixture' } } })
     } else if (path === '/api/console/groups/available') {
       await route.fulfill({ json: { code: 0, data: availableGroups } })
-    } else if (path === '/api/console/foxtranslate/key' && request.method() === 'POST') {
+    } else if (path === '/api/console/keys' && request.method() === 'GET') {
+      await route.fulfill({ json: { code: 0, data: { items: storedKeys } } })
+    } else if (path === '/api/console/keys' && request.method() === 'POST') {
       const valid = headers.origin === 'https://foxmori.com' && headers['sec-fetch-site'] !== 'cross-site' && headers['content-type'] === 'application/json'
       const body = request.postDataJSON()
-      if (!valid || !Number.isSafeInteger(body?.account_id) || body?.group_id !== 7) {
+      if (!valid || !Number.isSafeInteger(body?.account_id) || body?.group_id !== 7 || body?.name !== 'Foxtranslate') {
         await route.fulfill({ status: 403, json: { message: 'Invalid origin or key request' } })
         return
       }
       if (body.account_id !== accountId) {
-        await route.fulfill({ status: 409, json: { message: 'Account mismatch' } })
+        await route.fulfill({ status: 409, json: { message: '登录账户已变更，请重新连接' } })
         return
       }
       if (!availableGroups.some(group => group.id === body.group_id)) {
@@ -461,6 +464,7 @@ try {
         return
       }
       createdKeys++
+      storedKeys.push({ id: createdKeys, user_id: accountId, group_id: body.group_id, name: body.name, status: 'active', key: 'sk-fixture-foxmori' })
       await pauseKeyReply?.()
       await route.fulfill({ json: { code: 0, data: { key: 'sk-fixture-foxmori' } } })
     } else {
@@ -507,7 +511,7 @@ try {
   const loadsBeforeConnect = siteLoads
   const connect = provider.getByRole('button', { name: '连接已登录账户' })
   await connect.click()
-  await provider.getByText('请先在 Foxmori 主站登录', { exact: false }).waitFor()
+  await provider.getByText('请先登录', { exact: false }).waitFor()
   assert.equal(siteLoads, loadsBeforeConnect + 1)
   await site.route(url => url.hostname === 'foxmori.com', foxmoriFixture)
   await site.goto('https://foxmori.com/fixture-login')
@@ -550,14 +554,14 @@ try {
     const requestCount = consoleRequests.length
     await createKey.click()
     await provider.locator('.account-status[role="alert"]').filter({ hasText: hint }).waitFor()
-    assert.deepEqual(consoleRequests.slice(requestCount), ['POST /api/console/foxtranslate/key'])
+    assert.deepEqual(consoleRequests.slice(requestCount), ['POST /api/console/keys'])
     assert.equal(createdKeys, 0)
     assert.equal((await config({})).engine.keys.foxmori, originalEngine.keys.foxmori)
   }
   await site.goto('https://foxmori.com/fixture-switch-account')
-  await assertKeyRejected('登录账户已切换，请重新连接')
+  await assertKeyRejected('登录账户已变更，请重新连接')
   await browser.clearCookies({ name: 'fm_fixture' })
-  await assertKeyRejected('请在 Foxmori 主站重新登录')
+  await assertKeyRejected('请先登录')
   await site.goto('https://foxmori.com/fixture-login')
   const selectedGroups = availableGroups
   availableGroups = []
@@ -568,17 +572,20 @@ try {
   const requestCount = consoleRequests.length
   await createKey.click()
   await provider.getByText('密钥已配置，请获取模型列表并选择模型。', { exact: true }).waitFor()
-  assert.deepEqual(consoleRequests.slice(requestCount).filter(request => request.startsWith('POST ')), ['POST /api/console/foxtranslate/key'])
-  assert.ok(!consoleRequests.some(request => request.includes('/api/console/keys')))
+  assert.deepEqual(consoleRequests.slice(requestCount).filter(request => request.startsWith('POST ')), ['POST /api/console/keys'])
+  assert.deepEqual(consoleRequests.slice(requestCount), ['POST /api/console/keys'])
   assert.equal(createdKeys, 1)
   assert.equal((await config({})).engine.keys.foxmori, 'sk-fixture-foxmori')
   assert.equal((await config({})).engine.provider, 'google')
   await provider.locator('[data-engine-id="foxmori"][aria-pressed="true"]').waitFor()
   assert.equal(await provider.locator('.engine-current').count(), 1)
   await provider.locator('[data-engine-id="google"] .engine-current').waitFor()
+  const beforeProviderRedraw = consoleRequests.length
   await provider.locator('[data-engine-id="deepl"]').click()
   await provider.getByRole('heading', { name: 'DeepL', exact: true }).waitFor()
   await provider.locator('[data-engine-id="foxmori"]').click()
+  await provider.getByText('上次连接账户', { exact: true }).waitFor()
+  assert.equal(consoleRequests.length, beforeProviderRedraw)
   assert.equal((await config({})).engine.provider, 'google')
   const keyField = provider.getByLabel('API Key', { exact: true })
   const modelField = provider.getByRole('textbox', { name: '模型', exact: true })
@@ -627,7 +634,7 @@ try {
   await reopened.locator('.account-identity').getByText('second@example.test', { exact: true }).waitFor()
   await reopened.getByText('当前登录账户', { exact: true }).waitFor()
   assert.equal(await reopened.getByLabel('API Key', { exact: true }).inputValue(), independentKey)
-  const keyRequestSent = nextSession.waitForRequest(request => request.method() === 'POST' && request.url() === 'https://foxmori.com/api/console/foxtranslate/key')
+  const keyRequestSent = nextSession.waitForRequest(request => request.method() === 'POST' && request.url() === 'https://foxmori.com/api/console/keys')
   let releaseKeyReply
   const keyReplyPending = new Promise(resolve => { releaseKeyReply = resolve })
   pauseKeyReply = () => keyReplyPending

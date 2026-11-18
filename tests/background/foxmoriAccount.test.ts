@@ -64,6 +64,22 @@ it('repairs a tab left open across extension reload before connecting, without c
   expect(sendMessage.mock.calls.every(call => JSON.stringify(call[2]) === '{"frameId":0}')).toBe(true)
 })
 
+it('shares the page bridge readiness probe across simultaneous manual connections', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  sendMessage.mockImplementation(async (_id: number, request: FoxmoriBridgeRequest) => {
+    if (request.action === 'ready') { await gate; return { ok: true, data: { ready: true } } }
+    return { ok: true, data: account }
+  })
+  const first = getFoxmoriAccount()
+  const second = getFoxmoriAccount()
+  await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+  release()
+  expect(await Promise.all([first, second])).toEqual([account, account])
+  expect(sendMessage.mock.calls.filter(call => call[1].action === 'ready')).toHaveLength(1)
+  expect(reload).not.toHaveBeenCalled()
+})
+
 it('brings an existing login tab in another window to the foreground and repairs its connection', async () => {
   ready = false
   await openFoxmoriLogin()
@@ -83,7 +99,7 @@ it('opens the website for a manual connection when no Foxmori tab exists', async
 
 it('uses the regular session even when the active Foxmori tab is in an incognito window', async () => {
   tabs.mockResolvedValue([privateTab, { ...tab, active: false }])
-  expect(await getFoxmoriAccount(false)).toEqual(account)
+  expect(await getFoxmoriAccount()).toEqual(account)
   expect(sendMessage.mock.calls.map(call => call[0])).toEqual([tab.id, tab.id])
   expect(saved.save).toHaveBeenCalledExactlyOnceWith(account)
 })
@@ -94,24 +110,10 @@ it('does not connect to a private tab and opens manual login in a regular window
     { id: privateTab.windowId, incognito: true, focused: true },
     { id: tab.windowId, incognito: false, focused: false },
   ])
-  await expect(getFoxmoriAccount(false)).rejects.toThrow('请先打开')
-  expect(saved.save).not.toHaveBeenCalled()
-  expect(sendMessage).not.toHaveBeenCalled()
-  expect(create).not.toHaveBeenCalled()
   await openFoxmoriLogin()
   expect(create).toHaveBeenCalledExactlyOnceWith({ windowId: tab.windowId, url: tab.url, active: true })
   expect(focus).toHaveBeenCalledExactlyOnceWith(tab.windowId, { focused: true })
   expect(sendMessage.mock.calls.map(call => call[0])).toEqual([tab.id])
-})
-
-it('does not open or reload website tabs for the automatic cached-account check', async () => {
-  ready = false
-  await expect(getFoxmoriAccount(false)).rejects.toThrow('无法连接')
-  expect(reload).not.toHaveBeenCalled()
-  tabs.mockResolvedValue([])
-  await expect(getFoxmoriAccount(false)).rejects.toThrow('请先打开')
-  expect(create).not.toHaveBeenCalled()
-  expect(saved.save).not.toHaveBeenCalled()
 })
 
 it('does not navigate or reload unrelated pages if the selected tab changes its origin', async () => {
@@ -154,25 +156,14 @@ it.each(['Foxmori 登录账户已切换，请重新连接。', '请重新登录'
   expect(saved.updateConfig).not.toHaveBeenCalled()
 })
 
-it('does not replay a key creation whose response channel closed', async () => {
+it('reconciles a closed creation channel with a read-only bridge request', async () => {
   sendMessage.mockImplementation(async (_id: number, request: FoxmoriBridgeRequest) => {
     if (request.action === 'ready') return { ok: true, data: { ready: true } }
     throw new Error('The message port closed before a response was received.')
   })
   await expect(createFoxmoriKey(7, 12)).rejects.toThrow('连接已中断')
-  expect(sendMessage.mock.calls.filter(call => call[1].action === 'createKey')).toHaveLength(1)
+  expect(sendMessage.mock.calls.filter(call => call[1].action === 'createKey').map(call => call[1].reconcile)).toEqual([undefined, true])
   expect(saved.updateConfig).not.toHaveBeenCalled()
-})
-
-it('bounds unanswered readiness probes and leaves a background check read only', async () => {
-  vi.useFakeTimers()
-  sendMessage.mockReturnValue(new Promise(() => {}))
-  const checking = expect(getFoxmoriAccount(false)).rejects.toThrow('无法连接')
-  await vi.advanceTimersByTimeAsync(2_000)
-  await checking
-  expect(sendMessage.mock.calls.map(call => call[1].action)).toEqual(['ready', 'ready', 'ready'])
-  expect(reload).not.toHaveBeenCalled()
-  expect(saved.save).not.toHaveBeenCalled()
 })
 
 it('times out creation once and ignores a late reply without writing the key', async () => {
@@ -183,11 +174,12 @@ it('times out creation once and ignores a late reply without writing the key', a
     return request.action === 'ready' ? { ok: true, data: { ready: true } } : pending
   })
   const creating = expect(createFoxmoriKey(7, 12)).rejects.toThrow('响应超时')
-  await vi.advanceTimersByTimeAsync(25_000)
+  await vi.advanceTimersByTimeAsync(60_000)
   await creating
   reply({ ok: true, data: { apiKey: 'sk-late-fixture' } })
   await vi.advanceTimersByTimeAsync(0)
-  expect(sendMessage.mock.calls.map(call => call[1].action)).toEqual(['ready', 'createKey'])
+  expect(sendMessage.mock.calls.map(call => call[1].action)).toEqual(['ready', 'createKey', 'createKey'])
+  expect(sendMessage.mock.calls.at(-1)?.[1]).toMatchObject({ reconcile: true })
   expect(saved.updateConfig).not.toHaveBeenCalled()
   expect(config.engine.keys.foxmori).toBe('sk-previous-fixture')
 })

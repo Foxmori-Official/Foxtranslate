@@ -24,7 +24,7 @@ export type BgRequest =
   | { kind: 'getStats' }
   | { kind: 'testEngine'; provider?: string }
   | { kind: 'foxmoriLogin' }
-  | { kind: 'foxmoriAccount'; interactive?: boolean }
+  | { kind: 'foxmoriAccount' }
   | { kind: 'savedFoxmoriAccount' }
   | { kind: 'foxmoriCreateKey'; groupId: number; accountId: number }
   | { kind: 'fetchModels'; provider: string }

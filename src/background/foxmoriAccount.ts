@@ -7,7 +7,7 @@ export { getSavedFoxmoriAccount }
 const LOGIN_URL = FOXMORI_SITE + '/#models'
 const SITE_UNAVAILABLE = 'Foxmori 主站页面已关闭或跳转，请重新打开。'
 const BRIDGE_UNAVAILABLE = '无法连接 Foxmori 主站，请检查扩展是否允许访问 foxmori.com 后重试。'
-const replyTimeoutMs = { ready: 500, account: 25_000, createKey: 25_000 }
+const replyTimeoutMs = { ready: 500, account: 25_000, createKey: 30_000 }
 
 function isRegularSiteTab(tab: chrome.tabs.Tab): boolean {
   return !tab.incognito && isFoxmoriSite(tab.url ?? '') &&
@@ -68,23 +68,18 @@ async function bridgeResponds(tabId: number, attempts: number): Promise<boolean>
 
 const repairing = new Map<number, Promise<void>>()
 
-async function ensureBridge(tabId: number, repair: boolean): Promise<void> {
+async function ensureBridge(tabId: number): Promise<void> {
   const existing = repairing.get(tabId)
   if (existing) return existing
-  if (await bridgeResponds(tabId, 3)) return
-  if (repair) {
-    const current = repairing.get(tabId)
-    if (current) return current
-    const recovery = (async () => {
-      await regularSiteTab(tabId)
-      await chrome.tabs.reload(tabId)
-      if (!await bridgeResponds(tabId, 20)) throw new Error(BRIDGE_UNAVAILABLE)
-    })()
-    repairing.set(tabId, recovery)
-    try { return await recovery }
-    finally { if (repairing.get(tabId) === recovery) repairing.delete(tabId) }
-  }
-  throw new Error(BRIDGE_UNAVAILABLE)
+  const recovery = (async () => {
+    if (await bridgeResponds(tabId, 3)) return
+    await regularSiteTab(tabId)
+    await chrome.tabs.reload(tabId)
+    if (!await bridgeResponds(tabId, 20)) throw new Error(BRIDGE_UNAVAILABLE)
+  })()
+  repairing.set(tabId, recovery)
+  try { return await recovery }
+  finally { if (repairing.get(tabId) === recovery) repairing.delete(tabId) }
 }
 
 async function showLoginTab(): Promise<chrome.tabs.Tab> {
@@ -112,19 +107,23 @@ async function showLoginTab(): Promise<chrome.tabs.Tab> {
   return tab
 }
 
-async function bridge<T>(request: FoxmoriBridgeRequest, interactive = true): Promise<T> {
+async function bridge<T>(request: FoxmoriBridgeRequest): Promise<T> {
   let tab = await accountTab()
-  if (tab?.id == null && interactive && request.action === 'account') tab = await showLoginTab()
+  if (tab?.id == null && request.action === 'account') tab = await showLoginTab()
   if (tab?.id == null) throw new Error('请先打开 Foxmori 主站登录，再返回扩展连接账户。')
-  await ensureBridge(tab.id, interactive)
+  await ensureBridge(tab.id)
   await regularSiteTab(tab.id)
-  const result = await sendBridge<T>(tab.id, request)
+  const result = await sendBridge<T>(tab.id, request).catch(async error => {
+    if (request.action !== 'createKey') throw error
+    await regularSiteTab(tab.id!)
+    return sendBridge<T>(tab.id!, { ...request, reconcile: true })
+  })
   if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Foxmori 页面未响应，请刷新后重试。')
   return result.data
 }
 
-export async function getFoxmoriAccount(interactive = true): Promise<FoxmoriAccount> {
-  const account = await bridge<FoxmoriAccount>({ kind: 'foxmoriBridge', action: 'account' }, interactive)
+export async function getFoxmoriAccount(): Promise<FoxmoriAccount> {
+  const account = await bridge<FoxmoriAccount>({ kind: 'foxmoriBridge', action: 'account' })
   await saveFoxmoriAccount(account)
   return account
 }
@@ -157,5 +156,5 @@ export async function createFoxmoriKey(groupId: number, accountId: number): Prom
 
 export async function openFoxmoriLogin(): Promise<void> {
   const tab = await showLoginTab()
-  if (tab.id != null) await ensureBridge(tab.id, true)
+  if (tab.id != null) await ensureBridge(tab.id)
 }

@@ -11,16 +11,6 @@ interface Context {
   reload: () => Promise<void>
 }
 
-let keyConfigured = false
-let awaitingLogin = false
-let refreshOnReturn: (() => void) | null = null
-if (typeof window !== 'undefined') {
-  window.addEventListener('focus', () => refreshOnReturn?.())
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshOnReturn?.()
-  })
-}
-
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag)
   if (cls) element.className = cls
@@ -111,10 +101,9 @@ export function renderModelField(provider: 'foxmori' | 'openai' | 'deepseek', ct
   return wrap
 }
 
-function renderFoxmoriAccount(ctx: Context): HTMLElement {
+function renderFoxmoriAccount(ctx: Context, updateKeyFields: () => Promise<void>): HTMLElement {
   let account: FoxmoriAccount | null = null
   let verified = false
-  let connectionRevision = 0
   const copy = (key: Parameters<typeof featureCopy>[0]) => featureCopy(key, ctx.config().uiLang)
   const panel = node('section', 'fox-account')
   const header = node('div', 'fox-account-header')
@@ -131,9 +120,6 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
   const login = button(copy('login'), !account)
   const connectButton = button(copy('connect'))
   const status = node('p', 'hint account-status')
-  if (keyConfigured && ctx.config().engine.keys.foxmori) {
-    status.textContent = copy('keyCreated')
-  }
   status.setAttribute('role', 'status')
   let connecting = false
 
@@ -181,8 +167,8 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
       status.textContent = ''
       try {
         await ctx.send({ kind: 'foxmoriCreateKey', groupId: Number(groups.value), accountId })
-        keyConfigured = true
-        await ctx.reload()
+        await updateKeyFields()
+        status.textContent = copy('keyCreated')
       } catch (error) {
         status.textContent = message(error)
         status.setAttribute('role', 'alert')
@@ -197,25 +183,23 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
     accountBody.append(actions)
   }
 
-  async function connect(manual = true): Promise<void> {
+  async function connect(): Promise<void> {
     if (connecting || !panel.isConnected) return
-    connectionRevision++
     connecting = true
     status.setAttribute('role', 'status')
-    if (manual || !keyConfigured) status.textContent = copy('connecting')
+    status.textContent = copy('connecting')
     connectButton.disabled = true
     try {
-      const connected = await ctx.send<FoxmoriAccount>({ kind: 'foxmoriAccount', interactive: manual })
+      const connected = await ctx.send<FoxmoriAccount>({ kind: 'foxmoriAccount' })
       if (!panel.isConnected) return
       account = connected
       verified = true
-      awaitingLogin = false
-      status.textContent = keyConfigured && ctx.config().engine.keys.foxmori ? copy('keyCreated') : ''
+      status.textContent = ''
     } catch (error) {
       if (!panel.isConnected) return
       verified = false
-      status.setAttribute('role', manual || !account ? 'alert' : 'status')
-      status.textContent = manual || !account ? message(error) : ''
+      status.setAttribute('role', 'alert')
+      status.textContent = message(error)
     } finally {
       renderAccount()
       connecting = false
@@ -223,14 +207,11 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
     }
   }
 
-  refreshOnReturn = () => { if (awaitingLogin) void connect(false) }
   login.addEventListener('click', async () => {
-    awaitingLogin = true
     login.disabled = true
     try {
       await ctx.send({ kind: 'foxmoriLogin' })
     } catch (error) {
-      awaitingLogin = false
       status.setAttribute('role', 'alert')
       status.textContent = message(error)
     } finally {
@@ -242,10 +223,9 @@ function renderFoxmoriAccount(ctx: Context): HTMLElement {
   renderAccount()
   panel.append(header, accountBody, toolbar, status)
   void ctx.send<FoxmoriAccount | null>({ kind: 'savedFoxmoriAccount' }).then(saved => {
-    if (!panel.isConnected || connectionRevision || !saved?.user) return
+    if (!panel.isConnected || account || connecting || !saved?.user) return
     account = saved
     renderAccount()
-    void connect(false)
   }).catch(() => {})
   return panel
 }
@@ -261,7 +241,6 @@ export function renderFoxmoriProvider(area: HTMLElement, ctx: Context): void {
   key.placeholder = copy('keyPlaceholder')
   key.addEventListener('change', () => {
     const value = key.value.trim()
-    keyConfigured = false
     void ctx.saveEngine(engine => ({ ...engine, keys: { ...engine.keys, foxmori: value } }))
   })
   const reveal = button(copy('show'))
@@ -271,7 +250,12 @@ export function renderFoxmoriProvider(area: HTMLElement, ctx: Context): void {
   })
   secret.append(key, reveal)
   area.append(
-    renderFoxmoriAccount(ctx),
+    renderFoxmoriAccount(ctx, async () => {
+      await ctx.reload()
+      key.value = ctx.config().engine.keys.foxmori
+      const model = area.querySelector<HTMLInputElement>('.provider-model-input')
+      if (model) model.value = ctx.config().engine.foxmori.model
+    }),
     field('API Base URL', node('span', 'field-static', FOXMORI_API)),
     field('API Key', secret, 'provider-key-row'),
     node('p', 'hint', copy('keyHint')),

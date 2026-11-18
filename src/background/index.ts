@@ -47,7 +47,7 @@ async function handle(msg: BgRequest, sender?: chrome.runtime.MessageSender, sig
       await openFoxmoriLogin()
       return null
     case 'foxmoriAccount':
-      return getFoxmoriAccount(msg.interactive !== false)
+      return getFoxmoriAccount()
     case 'savedFoxmoriAccount':
       return getSavedFoxmoriAccount()
     case 'foxmoriCreateKey':
