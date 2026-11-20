@@ -2,7 +2,7 @@
   <img src="public/icons/foxtranslate-logo.png" alt="" width="80" height="80">
   <h1>Foxtranslate</h1>
   <p>在浏览器里双语阅读网页、看字幕、翻译文档，随手收藏生词</p>
-  <p><a href="https://chromewebstore.google.com/detail/oebmlalinodadlbommbkkpijkcnhdhln"><img src="https://img.shields.io/badge/Chrome%20Web%20Store-Install-1A73E8?style=for-the-badge&amp;logo=googlechrome&amp;logoColor=white" alt="从 Chrome 应用商店安装 Foxtranslate"></a></p>
+  <p><a href="https://chromewebstore.google.com/detail/oebmlalinodadlbommbkkpijkcnhdhln"><img src="https://developer.chrome.com/static/docs/webstore/branding/image/UV4C4ybeBTsZt43U4xis.png" width="170" alt="从 Chrome 应用商店安装 Foxtranslate"></a></p>
   <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">下载安装包</a> · <a href="#快速安装">安装步骤</a> · <a href="docs/README.en.md">English</a></p>
 </div>
 
