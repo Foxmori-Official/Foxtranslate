@@ -2,6 +2,7 @@
   <img src="../public/icons/foxtranslate-logo.png" alt="" width="80" height="80">
   <h1>Foxtranslate</h1>
   <p>Read webpages in two languages, translate captions and documents, and save words for review</p>
+  <p><a href="https://chromewebstore.google.com/detail/oebmlalinodadlbommbkkpijkcnhdhln"><img src="https://img.shields.io/badge/Chrome%20Web%20Store-Install-1A73E8?style=for-the-badge&amp;logo=googlechrome&amp;logoColor=white" alt="Install Foxtranslate from the Chrome Web Store"></a></p>
   <p><a href="https://github.com/Foxmori-Official/Foxtranslate/releases/latest">Download</a> · <a href="#install">Installation</a> · <a href="../README.md">简体中文</a></p>
 </div>
 
