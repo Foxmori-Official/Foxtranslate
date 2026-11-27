@@ -42,6 +42,7 @@ async function accountIdentity(config: Config): Promise<string> {
 }
 
 interface Task {
+  detachAbort?: () => void
   run: () => Promise<unknown>
   resolve: (value: unknown) => void
   reject: (error: unknown) => void
@@ -67,6 +68,7 @@ function pump(key: string, state: Limiter) {
   while (state.active < state.limit && state.pending.length) {
     const priority = state.pending.findIndex(task => task.priority)
     const task = state.pending.splice(priority < 0 ? 0 : priority, 1)[0]
+    task.detachAbort?.()
     state.active++
     void Promise.resolve().then(task.run).then(task.resolve, error => {
       const failure = error as { statusCode?: number; retryAfterMs?: number }
@@ -84,8 +86,9 @@ function pump(key: string, state: Limiter) {
 }
 
 /** All translation paths, including fallback and AI assistance, share actual request slots. */
-export async function scheduleRequest<T>(config: Config, run: () => Promise<T>, priority = false): Promise<T> {
+export async function scheduleRequest<T>(config: Config, run: () => Promise<T>, priority = false, signal?: AbortSignal): Promise<T> {
   const key = await accountIdentity(config)
+  signal?.throwIfAborted()
   let state = accounts.get(key)
   if (!state) {
     // Expired cooldown entries do not accumulate across endpoints/accounts.
@@ -99,8 +102,20 @@ export async function scheduleRequest<T>(config: Config, run: () => Promise<T>, 
   state.limit = normalizeConcurrency(config.batch.concurrency)
   if (state.pending.length >= MAX_PENDING) throw new Error('Translation queue is full. Please try again later.')
   return new Promise<T>((resolve, reject) => {
-    state.pending.push({ run, resolve: resolve as (value: unknown) => void, reject, priority })
-    pump(key, state)
+    const limiter = state
+    const task: Task = { run, resolve: resolve as (value: unknown) => void, reject, priority }
+    if (signal) {
+      const abort = () => {
+        const index = limiter.pending.indexOf(task)
+        if (index < 0) return
+        limiter.pending.splice(index, 1)
+        reject(signal.reason)
+      }
+      signal.addEventListener('abort', abort, { once: true })
+      task.detachAbort = () => signal.removeEventListener('abort', abort)
+    }
+    limiter.pending.push(task)
+    pump(key, limiter)
   })
 }
 

@@ -28,7 +28,7 @@ export const ENGINES: Record<string, Engine> = {
   custom: customEngine,
 }
 
-/** 免费引擎失败链顺序（契约 §7）：单引擎失败冷却 60s 沉底由管线层实现，此处只给顺序。 */
+/** 免费引擎的降级顺序；冷却由翻译管线处理。 */
 export const FREE_CHAIN = FREE_ENGINE_IDS
 
 /**

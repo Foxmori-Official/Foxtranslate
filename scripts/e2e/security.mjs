@@ -101,6 +101,9 @@ try {
         }
         return Response.json({ choices: [{ message: { content: 'Security fixture translation' } }] })
       }
+      if (String(url).startsWith('https://edge.microsoft.com/translate/translatetext?')) {
+        return Response.json([{ translations: [{ text: 'Microsoft fixture translation' }] }])
+      }
       if (/^https?:/.test(String(url))) throw new Error('External network is disabled during security acceptance')
       return realFetch(url, init)
     }
@@ -361,7 +364,21 @@ try {
   assert.equal(await worker.evaluate(() => globalThis.securityCalls), cacheCalls + 1)
   await privacy.goto(origin + '/options.html?uiLang=en#privacy')
   await privacy.getByRole('button', { name: 'Clear translation cache', exact: true }).waitFor()
-  console.log('PASS · cache clearing, page-wide failed retries, trusted controls, management/storage isolation and viewport translation')
+
+  await send({ kind: 'setConfig', patch: { general: { ...config.general, targetLang: 'ja' } } })
+  await worker.evaluate(() => { globalThis.failRetryAudit = true })
+  const switchPage = await browser.newPage()
+  await switchPage.goto(address + '/retry')
+  await switchPage.locator('.tv-ball').click()
+  await switchPage.locator('#retry-1 [data-tv-error]').waitFor()
+  await switchPage.locator('#retry-2 [data-tv-error]').waitFor()
+  await switchPage.locator('#retry-3 tv-translation').getByText('Security fixture translation').waitFor()
+  await send({ kind: 'setConfig', patch: { engine: { ...config.engine, provider: 'bing' } } })
+  await switchPage.locator('#retry-1 tv-translation').getByText('Microsoft fixture translation').waitFor()
+  await switchPage.locator('#retry-2 tv-translation').getByText('Microsoft fixture translation').waitFor()
+  assert.match(await switchPage.locator('#retry-3 tv-translation').innerText(), /Security fixture translation/)
+  assert.equal(await switchPage.locator('[data-tv-error]').count(), 0)
+  console.log('PASS · cache clearing, page-wide failed retries, engine switching, trusted controls, management/storage isolation and viewport translation')
 } finally {
   if (browser) await browser.close()
   fixture.close()

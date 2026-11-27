@@ -5,7 +5,7 @@
  *   supportsBatch + batch.enabled 走 BatchQueue）→ restore placeholders
  *   → cache.set（key 含有效术语表的摘要，术语表变更即失效）
  *
- * 免费链（OpenImmersive 式）：配置引擎优先，失败冷却 60s 沉底，依次尝试
+ * 免费链（OpenImmersive 式）：配置引擎优先，失败后暂时跳过，依次尝试
  * FREE_CHAIN 其余引擎，全失败抛合并错误；BYOK 不进链（配置错误不静默掩盖）。
  */
 
@@ -49,16 +49,16 @@ export interface TranslateOptions {
 // ── 免费链冷却（模块级 Map：engineId → 过期时间戳）───────────────────────────
 
 const COOLDOWN_MS = 60_000
-const cooldowns = new Map<string, number>()
+const cooldowns = new Map<string, { until: number; message: string }>()
 
 /** 清空冷却表（测试用）。 */
 export function resetCooldowns(): void {
   cooldowns.clear()
 }
 
-function isCooling(id: string, now: number): boolean {
-  const until = cooldowns.get(id)
-  return until !== undefined && until > now
+function activeCooldown(id: string) {
+  const cooldown = cooldowns.get(id)
+  return cooldown && cooldown.until > Date.now() ? cooldown : undefined
 }
 
 // ── mask / glossary 预处理的正逆实现 ─────────────────────────────────────────
@@ -182,43 +182,67 @@ async function cacheNamespace(
 // ── 引擎路由 ────────────────────────────────────────────────────────────────
 
 /** 单次引擎调用的超时控制：超时按引擎失败处理（免费链据此降级）。 */
-function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number, cancellation?: AbortSignal): Promise<T> {
   const controller = new AbortController()
+  const signal = cancellation ? AbortSignal.any([cancellation, controller.signal]) : controller.signal
   const timer = setTimeout(() => controller.abort(), ms)
-  return fn(controller.signal).finally(() => clearTimeout(timer))
+  try {
+    signal.throwIfAborted()
+    return await fn(signal)
+  } finally { clearTimeout(timer) }
 }
 
-function request<T>(config: Config, fn: (signal: AbortSignal) => Promise<T>, priority = false): Promise<T> {
+function request<T>(config: Config, fn: (signal: AbortSignal) => Promise<T>, priority = false, cancellation?: AbortSignal): Promise<T> {
   // Timeout begins after a slot is acquired, rather than expiring while waiting behind other requests.
-  return scheduleRequest(config, () => withTimeout(fn, ENGINE_REQUEST_TIMEOUT_MS), priority)
+  return scheduleRequest(config, () => withTimeout(fn, ENGINE_REQUEST_TIMEOUT_MS, cancellation), priority, cancellation)
 }
 
-/** 免费链：配置引擎优先，失败冷却 60s 沉底，依次尝试 FREE_CHAIN 其余。 */
+/** 免费链：配置引擎优先，跳过仍在冷却的引擎，依次尝试其余引擎。 */
 async function translateFreeChain(
   text: string,
   from: string,
   to: string,
   config: Config,
   preferred: Engine,
-  immediate = false,
+  options: Pick<TranslateOptions, 'immediate' | 'signal'>,
 ): Promise<EngineResult> {
   const order = [preferred.id, ...FREE_CHAIN.filter((id) => id !== preferred.id)]
   const errors: string[] = []
-  const now = Date.now()
   for (const id of order) {
-    if (isCooling(id, now)) continue
+    options.signal?.throwIfAborted()
+    let cooldown = activeCooldown(id)
     try {
-      return await request(
-        { ...config, engine: { ...config.engine, provider: id } },
-        (signal) => ENGINES[id].translate(text, from, to, { config }, signal),
-        immediate,
-      )
-    } catch (err) {
-      cooldowns.set(id, Date.now() + COOLDOWN_MS)
-      errors.push(`${id}: ${(err as Error).message}`)
+      if (!cooldown) {
+        const result = await request({ ...config, engine: { ...config.engine, provider: id } }, async signal => {
+          // Work from another tab may fail while this request is waiting for a slot.
+          cooldown = activeCooldown(id)
+          if (cooldown) return
+          try {
+            return await ENGINES[id].translate(text, from, to, { config }, signal)
+          } catch (error) {
+            options.signal?.throwIfAborted()
+            const delay = (error as { retryAfterMs?: number } | null)?.retryAfterMs ?? 0
+            const cooldownMs = Number.isFinite(delay) ? Math.max(COOLDOWN_MS, Math.min(delay, 300_000)) : COOLDOWN_MS
+            cooldowns.set(id, { until: Date.now() + cooldownMs, message: engineErrorMessage(error) })
+            throw error
+          }
+        }, options.immediate, options.signal)
+        if (result) return result
+      }
+      if (cooldown) {
+        const seconds = Math.max(1, Math.ceil((cooldown.until - Date.now()) / 1000))
+        errors.push(`${id}: ${cooldown.message} (retry in ${seconds}s)`)
+      }
+    } catch (error) {
+      options.signal?.throwIfAborted()
+      errors.push(`${id}: ${engineErrorMessage(error)}`)
     }
   }
   throw new Error(`translate: all free engines failed (${errors.join(' | ')})`)
+}
+
+function engineErrorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).trim() || 'Request failed'
 }
 
 /**
@@ -276,15 +300,15 @@ async function routePrepared(
   config: Config,
   glossarySig: string,
   ctxSig?: string,
-  options: Pick<TranslateOptions, 'exactProvider' | 'immediate' | 'scope'> = {},
+  options: Pick<TranslateOptions, 'exactProvider' | 'immediate' | 'scope' | 'signal'> = {},
 ): Promise<EngineResult> {
   const ctx: EngineContext = { config }
   const engine = resolveEngine(config.engine.provider, ctx)
   if (engine.kind === 'free' && options.exactProvider) {
-    return request(config, signal => engine.translate(prepared, from, to, ctx, signal), options.immediate)
+    return request(config, signal => engine.translate(prepared, from, to, ctx, signal), options.immediate, options.signal)
   }
   if (engine.kind === 'free') {
-    return translateFreeChain(prepared, from, to, config, engine, options.immediate)
+    return translateFreeChain(prepared, from, to, config, engine, options)
   }
   await assertEndpointPermission(config)
   if (engine.supportsBatch && config.batch.enabled) {
@@ -310,7 +334,7 @@ async function routePrepared(
     const text = await queue.addTask(prepared, options.immediate)
     return { text }
   }
-  return request(config, signal => engine.translate(prepared, from, to, ctx, signal), options.immediate)
+  return request(config, signal => engine.translate(prepared, from, to, ctx, signal), options.immediate, options.signal)
 }
 
 // ── 对外入口 ────────────────────────────────────────────────────────────────

@@ -43,7 +43,7 @@ Foxtranslate includes no telemetry. The browser stores settings, API keys, vocab
 
 ## Build from source
 
-Use Node.js 22 and npm, then load the `dist` folder as an unpacked extension.
+Use Node.js 26 LTS and npm. If you use nvm, run `nvm install` in the project directory to use the version in `.nvmrc`. After building, load `dist` as an unpacked extension.
 
 ```sh
 git clone https://github.com/Foxmori-Official/Foxtranslate.git

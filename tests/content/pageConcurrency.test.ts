@@ -120,3 +120,29 @@ it('applies changed limits without cancelling active work or admitting extra wor
   releases[4]()
   await vi.waitFor(() => expect(requests).toBe(6))
 })
+
+it('switches failed and in-flight paragraphs to the new engine without touching finished results', async () => {
+  config.batch.concurrency = 2
+  const cancelled: string[] = []
+  vi.stubGlobal('chrome', { runtime: { sendMessage: vi.fn((msg: { kind: string; text: string; requestId: string }) => {
+    if (msg.kind === 'cancelTranslation') {
+      cancelled.push(msg.requestId)
+      return Promise.resolve({ ok: true })
+    }
+    if (config.engine.provider === 'bing') return Promise.resolve({ ok: true, data: { text: '新版引擎的译文' } })
+    if (msg.text.includes('example 0.')) return Promise.resolve({ ok: true, data: { text: '应当保留的译文' } })
+    if (msg.text.includes('example 1.')) return Promise.resolve({ ok: false, error: 'old engine failure' })
+    return new Promise(resolve => releases.push(() => resolve({ ok: false, error: 'late old engine failure' })))
+  }) } })
+  await start()
+  await vi.waitFor(() => expect([translator.translatedCount, translator.failedCount, releases.length]).toEqual([1, 1, 2]))
+  config.engine.provider = 'bing'
+  translator.useNewEngine()
+  await vi.waitFor(() => expect(translator.translatedCount).toBe(40))
+  expect(cancelled).toHaveLength(2)
+  for (const release of releases) release()
+  await Promise.resolve()
+  expect(document.querySelectorAll('[data-tv-error]')).toHaveLength(0)
+  expect(document.querySelectorAll('p')[0].textContent).toContain('应当保留的译文')
+  expect(document.querySelectorAll('p')[1].textContent).toContain('新版引擎的译文')
+})

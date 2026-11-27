@@ -189,4 +189,22 @@ describe('actual request budgets', () => {
     await scheduleRequest(c, async () => undefined)
     expect(Date.now() - started).toBeGreaterThanOrEqual(900)
   })
+
+  it('removes cancelled requests while the account slot is still busy', async () => {
+    const c = config()
+    c.engine.keys.openai = 'cancel-queued-fixture'
+    c.batch.concurrency = 1
+    let release: (() => void) | undefined
+    const active = scheduleRequest(c, () => new Promise<void>(resolve => { release = resolve }))
+    await vi.waitFor(() => expect(release).toBeDefined())
+    const controller = new AbortController()
+    const run = vi.fn(async () => undefined)
+    const queued = scheduleRequest(c, run, false, controller.signal)
+    const result = expect(queued).rejects.toMatchObject({ name: 'AbortError' })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    controller.abort()
+    try { await result } finally { release?.() }
+    await active
+    expect(run).not.toHaveBeenCalled()
+  })
 })

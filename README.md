@@ -43,7 +43,7 @@ YouTube 翻译需要可读取的字幕轨，适用于普通视频播放页。PDF
 
 ## 从源码构建
 
-使用 Node.js 22 和 npm。构建后，在扩展管理页加载 `dist`。
+使用 Node.js 26 LTS 和 npm。使用 nvm 时，可在项目目录运行 `nvm install`，载入 `.nvmrc` 指定的版本。构建后，在扩展管理页加载 `dist`。
 
 ```sh
 git clone https://github.com/Foxmori-Official/Foxtranslate.git

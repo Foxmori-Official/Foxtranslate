@@ -45,6 +45,8 @@ npm run check:upstreams
 
 ## 本地更新与回归
 
+本地构建、CI 和发布均使用 `.nvmrc` 指定的 Node.js 26 LTS。使用 nvm 时，可在项目目录运行 `nvm install` 切换版本。
+
 ```sh
 npm ci
 npm run typecheck

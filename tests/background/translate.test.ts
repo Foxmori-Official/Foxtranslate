@@ -174,6 +174,34 @@ describe('免费链', () => {
     ).rejects.toThrow(/all free engines failed.*google.*bing.*mymemory/s)
   })
 
+  it('skips queued attempts after a failure and explains cooldowns even after switching free engines', async () => {
+    const config = makeConfig({ provider: 'google' })
+    config.batch.concurrency = 1
+    const providers = ['google', 'bing', 'mymemory']
+    for (const id of providers) vi.mocked(ENGINES[id].translate).mockRejectedValue(new Error(`${id} unavailable`))
+    const options = { targetLang: 'zh-CN' }
+    const failed = await Promise.allSettled(Array.from({ length: 16 }, (_, i) => translate(`paragraph ${i}`, options, config)))
+    for (const result of failed) expect(result).toMatchObject({ status: 'rejected', reason: { message: expect.stringContaining('bing unavailable') } })
+    config.engine.provider = 'bing'
+    await expect(translate('after switching', options, config)).rejects.toThrow(/bing unavailable \(retry in \d+s\)/)
+    for (const id of providers) expect(ENGINES[id].translate).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts the active free request without marking the engine down or trying another engine', async () => {
+    const config = makeConfig({ provider: 'google' })
+    const controller = new AbortController()
+    vi.mocked(ENGINES.google.translate).mockImplementationOnce((_text, _from, _to, _ctx, signal) =>
+      new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason), { once: true })),
+    )
+    const pending = translate('old engine request', { targetLang: 'zh-CN', signal: controller.signal }, config)
+    const failed = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.waitFor(() => expect(ENGINES.google.translate).toHaveBeenCalled())
+    controller.abort()
+    await failed
+    expect(ENGINES.bing.translate).not.toHaveBeenCalled()
+    expect((await translate('another tab', { targetLang: 'zh-CN' }, config)).text).toBe('[google]another tab')
+  })
+
   it('BYOK 不进链：失败直接抛出，免费引擎零调用', async () => {
     const config = makeConfig({ provider: 'deepl' })
     vi.mocked(ENGINES.deepl.translate).mockRejectedValue(new Error('401 bad key'))

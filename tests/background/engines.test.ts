@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG, type Config } from '../../src/shared/config'
 import type { EngineContext } from '../../src/background/engines'
 import { ENGINES, FREE_CHAIN, resolveEngine, setFetchImpl } from '../../src/background/engines'
 import { googleEngine, parseGoogleSingle } from '../../src/background/engines/google'
-import { bingEngine, resetBingTokenCache, toBingLang } from '../../src/background/engines/bing'
+import { bingEngine, toBingLang } from '../../src/background/engines/bing'
 import { MYMEMORY_MAX_CHARS, mymemoryEngine } from '../../src/background/engines/mymemory'
 import { deeplEngine, toDeepLLang } from '../../src/background/engines/deepl'
 import { libreEngine } from '../../src/background/engines/libre'
@@ -43,10 +43,6 @@ function jsonResponse(data: unknown, status = 200): Response {
   })
 }
 
-function textResponse(text: string, status = 200): Response {
-  return new Response(text, { status })
-}
-
 function makeCtx(patch?: (c: Config) => void): EngineContext {
   const config = structuredClone(DEFAULT_CONFIG)
   patch?.(config)
@@ -63,7 +59,6 @@ function llmCtx(patch?: (c: Config) => void): EngineContext {
 
 beforeEach(() => {
   calls = []
-  resetBingTokenCache()
 })
 
 // ---------- google ----------
@@ -126,12 +121,6 @@ describe('google engine', () => {
 
 // ---------- bing ----------
 
-function fakeJwt(expSeconds: number): string {
-  const b64 = (o: unknown) =>
-    Buffer.from(JSON.stringify(o)).toString('base64url').replace(/=+$/, '')
-  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ exp: expSeconds })}.sig`
-}
-
 const bingTranslateResponse = [
   {
     detectedLanguage: { language: 'en', score: 1 },
@@ -140,71 +129,25 @@ const bingTranslateResponse = [
 ]
 
 describe('bing engine', () => {
-  it('先取 JWT 再翻译；两次调用复用缓存', async () => {
-    const authCalls = { n: 0 }
-    setFetchImpl(
-      makeFetch((url) => {
-        if (url.startsWith('https://edge.microsoft.com/translate/auth')) {
-          authCalls.n++
-          return textResponse(fakeJwt(Math.floor(Date.now() / 1000) + 3600))
-        }
-        return jsonResponse(bingTranslateResponse)
-      })
-    )
-    const ctx = makeCtx()
-    const r1 = await bingEngine.translate('hello', 'auto', 'zh-CN', ctx)
-    const r2 = await bingEngine.translate('hello', 'auto', 'zh-CN', ctx)
-    expect(r1).toEqual({ text: '你好', detectedLang: 'en' })
-    expect(r2.text).toBe('你好')
-    expect(authCalls.n).toBe(1)
-    // 翻译请求的形状
-    const t = calls.find((c) => c.url.startsWith('https://api.cognitive.microsofttranslator.com'))!
-    expect(t.url).toContain('api-version=3.0')
-    expect(t.url).toContain('to=zh-Hans')
-    expect(t.url).toContain('textType=plain')
-    expect(t.url).not.toContain('from=')
-    expect(t.init?.method).toBe('POST')
-    expect((t.init?.headers as Record<string, string>).Authorization).toMatch(/^Bearer .+\.sig$/)
-    expect(JSON.parse(t.init?.body as string)).toEqual([{ Text: 'hello' }])
-  })
-
-  it('exp 在 5 分钟之内则提前重取 token', async () => {
-    let authCalls = 0
-    setFetchImpl(
-      makeFetch((url) => {
-        if (url.startsWith('https://edge.microsoft.com/translate/auth')) {
-          authCalls++
-          // exp 在未来 4 分钟（<5 分钟 skew）→ 立即视为过期
-          return textResponse(fakeJwt(Math.floor(Date.now() / 1000) + 240))
-        }
-        return jsonResponse(bingTranslateResponse)
-      })
-    )
-    const ctx = makeCtx()
-    await bingEngine.translate('a', 'auto', 'en', ctx)
-    await bingEngine.translate('b', 'auto', 'en', ctx)
-    expect(authCalls).toBe(2)
+  it('uses the current Edge endpoint directly without the retired authentication request', async () => {
+    setFetchImpl(makeFetch(() => jsonResponse(bingTranslateResponse)))
+    expect(await bingEngine.translate('hello', 'auto', 'zh-CN', makeCtx())).toEqual({ text: '你好', detectedLang: 'en' })
+    expect(calls).toEqual([{
+      url: 'https://edge.microsoft.com/translate/translatetext?from=&to=zh-Hans&isEnterpriseClient=false',
+      init: expect.objectContaining({
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '["hello"]', credentials: 'omit',
+      }),
+    }])
   })
 
   it('指定 from 时带上 from 参数并做语言映射', async () => {
-    setFetchImpl(
-      makeFetch((url) =>
-        url.startsWith('https://edge.microsoft.com') ? textResponse(fakeJwt(0)) : jsonResponse(bingTranslateResponse)
-      )
-    )
+    setFetchImpl(makeFetch(() => jsonResponse(bingTranslateResponse)))
     await bingEngine.translate('hello', 'zh-TW', 'zh-CN', makeCtx())
-    const t = calls.find((c) => c.url.startsWith('https://api.cognitive.microsofttranslator.com'))!
-    expect(t.url).toContain('from=zh-Hant')
+    expect(new URL(calls[0].url).searchParams.get('from')).toBe('zh-Hant')
   })
 
   it('HTTP 200 里藏业务错误（非数组）时抛错', async () => {
-    setFetchImpl(
-      makeFetch((url) =>
-        url.startsWith('https://edge.microsoft.com')
-          ? textResponse(fakeJwt(0))
-          : jsonResponse({ statusCode: 400, message: 'too long' })
-      )
-    )
+    setFetchImpl(makeFetch(() => jsonResponse({ statusCode: 400, message: 'too long' })))
     await expect(bingEngine.translate('x'.repeat(99999), 'auto', 'en', makeCtx())).rejects.toThrow(
       /business error/
     )

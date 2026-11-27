@@ -59,7 +59,8 @@ function applyConfig(config: PageConfig, first = false) {
   initialized = true
   const previous = currentConfig
   currentConfig = config
-  pageTranslator.refreshConcurrency()
+  if (previous.engine.provider !== config.engine.provider) pageTranslator.useNewEngine()
+  else pageTranslator.refreshConcurrency()
   setContentUiLang(config)
   setSelectionConfig(config)
   setHoverConfig(config)

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extName__",
   "short_name": "__MSG_extShortName__",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "__MSG_extDescription__",
   "minimum_chrome_version": "140",
   "background": {
@@ -74,7 +74,6 @@
   "host_permissions": [
     "https://translate.googleapis.com/",
     "https://edge.microsoft.com/",
-    "https://api.cognitive.microsofttranslator.com/",
     "https://api.mymemory.translated.net/",
     "https://api-free.deepl.com/",
     "https://api.deepl.com/",

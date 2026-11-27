@@ -66,22 +66,30 @@ type PageTranslationSettings = TranslationSettings & Pick<PageConfig, 'engine' |
 async function requestTranslate(text: string, config: TranslationSettings, signal?: AbortSignal): Promise<TranslateResult> {
   signal?.throwIfAborted()
   const requestId = crypto.randomUUID()
-  const cancel = () => { void chrome.runtime.sendMessage({ kind: 'cancelTranslation', requestId }).catch(() => {}) }
-  signal?.addEventListener('abort', cancel, { once: true })
+  let cancel: (() => void) | undefined
   try {
-    const resp = (await chrome.runtime.sendMessage({
-    kind: 'translate',
-    text,
-    targetLang: config.general.targetLang,
-    sourceLang: config.general.sourceLang,
-    scope: 'page',
-    requestId,
-    // 仅开关开启时附带页面上下文；机器引擎在 background 侧忽略
-    ...(config.contextAware.enabled ? { context: getPageContext() } : {}),
-  })) as BgResponse<TranslateResult>
+    const resp = await new Promise<BgResponse<TranslateResult>>((resolve, reject) => {
+      if (signal) {
+        cancel = () => {
+          reject(signal.reason)
+          void chrome.runtime.sendMessage({ kind: 'cancelTranslation', requestId }).catch(() => {})
+        }
+        signal.addEventListener('abort', cancel, { once: true })
+      }
+      void chrome.runtime.sendMessage({
+        kind: 'translate',
+        text,
+        targetLang: config.general.targetLang,
+        sourceLang: config.general.sourceLang,
+        scope: 'page',
+        requestId,
+        // 仅开关开启时附带页面上下文；机器引擎在 background 侧忽略
+        ...(config.contextAware.enabled ? { context: getPageContext() } : {}),
+      }).then(resolve, reject)
+    })
     if (!resp.ok) throw new Error(resp.error)
     return resp.data
-  } finally { signal?.removeEventListener('abort', cancel) }
+  } finally { if (cancel) signal?.removeEventListener('abort', cancel) }
 }
 
 /** The worker masks the complete paragraph before splitting it. */
@@ -130,7 +138,7 @@ export class PageTranslator {
   private failed = new Set<Element>()
   private retries = new Set<Element>()
   private observed = new Set<Element>()
-  private working = new WeakMap<Element, AbortController>()
+  private working = new Map<Element, AbortController>()
   private scanRoots = new Set<Element>()
   private scans: Generator<Element | null>[] = []
   private running = 0
@@ -155,6 +163,18 @@ export class PageTranslator {
   /** Apply a larger window immediately; a smaller window lets active work finish. */
   refreshConcurrency(): void {
     this.drain()
+  }
+
+  /** Keep successful translations and restart only unfinished work. */
+  useNewEngine(): void {
+    if (!this.session) return
+    for (const [el, controller] of this.working) {
+      if (controller.signal.aborted) continue
+      controller.abort()
+      clearStatus(el)
+      this.retries.add(el)
+    }
+    this.retryFailed()
   }
 
   retryFailed(): void {
